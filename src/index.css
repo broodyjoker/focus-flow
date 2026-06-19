@@ -26,7 +26,7 @@
 .dark {
   --color-surface: #0f172a;      /* slate-900 */
   --color-surface-alt: #1e293b;  /* slate-800 */
-  --color-border: #334155;       /* slate-700 */
+  --color-border: #1e293b;       /* slate-800 — softer than slate-700 */
   --color-text-primary: #e2e8f0; /* slate-200 */
   --color-text-muted: #64748b;   /* slate-500 */
 }
@@ -56,9 +56,28 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* ── Scrollbar styling (webkit) ─────────────────────────────────────────────── */
+/* ── Scrollbar styling — ultra-thin, elegant, reveal-on-hover ───────────────── */
+/* Preserve layout stability: reserve space so content never shifts */
+* {
+  scrollbar-gutter: stable;
+}
+
+/* Firefox — thin transparent track, only color-visible on hover */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: #cbd5e1 transparent;
+}
+.dark *:hover {
+  scrollbar-color: #1e293b transparent;
+}
+
+/* Webkit / Chrome / Safari / Edge */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -66,20 +85,28 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #e2e8f0;
+  background: transparent;
   border-radius: 99px;
+  transition: background 0.2s ease;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #cbd5e1;
+/* Only reveal the thumb when the parent is hovered */
+*:hover > ::-webkit-scrollbar-thumb,
+*:hover::-webkit-scrollbar-thumb {
+  background: #e2e8f0; /* slate-200 */
+}
+*:hover > ::-webkit-scrollbar-thumb:hover,
+*:hover::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; /* slate-400 */
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
+.dark *:hover > ::-webkit-scrollbar-thumb,
+.dark *:hover::-webkit-scrollbar-thumb {
+  background: #1e293b; /* slate-800 — barely-there */
 }
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+.dark *:hover > ::-webkit-scrollbar-thumb:hover,
+.dark *:hover::-webkit-scrollbar-thumb:hover {
+  background: #334155; /* slate-700 */
 }
 
 /* ── Miller Column slide animations ─────────────────────────────────────────── */

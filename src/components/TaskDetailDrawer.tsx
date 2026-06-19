@@ -18,17 +18,22 @@
 //   • Smooth slide-in / fade transition
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useRef, useState } from 'react';
-import { X, CalendarCheck, CalendarPlus, CalendarX, Repeat, Paperclip, Zap, Battery, Trash2, FileText } from 'lucide-react';
-import type { Task, EnergyLevel, Attachment } from '../models';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { X, CalendarCheck, CalendarPlus, CalendarX, Paperclip, Zap, Battery, Trash2, FileText, Bell, Copy, FolderInput } from 'lucide-react';
+import type { Task, Attachment, Preferences, LifeBucket } from '../models';
 import { formatDueDate, getToday, getTomorrow, isToday, isTomorrow } from '../utils/dates';
 import { PRIORITY_META, type PriorityValue } from '../utils/priority';
+import { useSwipe } from '../utils/useSwipe';
+import { requestNotificationPermission } from '../utils/notifications';
 
 interface TaskDetailDrawerProps {
   task: Task | null;
   onClose: () => void;
   onUpdate: (taskId: string, updates: Partial<Task>) => void;
   onDelete: (taskId: string) => void;
+  onDuplicate: (taskId: string) => void;
+  buckets: LifeBucket[];
+  preferences: Preferences;
 }
 
 // ── Toggle switch ──────────────────────────────────────────────────────────────
@@ -111,7 +116,15 @@ function DateChip({
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDetailDrawerProps) {
+export function TaskDetailDrawer({
+  task,
+  onClose,
+  onUpdate,
+  onDelete,
+  onDuplicate,
+  buckets,
+  preferences,
+}: TaskDetailDrawerProps) {
   const [titleValue, setTitleValue] = useState('');
   const [notesValue, setNotesValue] = useState('');
   const [isVisible, setIsVisible] = useState(false);
@@ -121,25 +134,21 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!task) return;
-    
+
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    
-    console.log('1. Files selected:', files.map(f => f.name));
 
     try {
       const processedPromises = files.map((file) => {
+        // eslint-disable-next-line no-async-promise-executor
         return new Promise<Attachment | null>(async (resolve) => {
           try {
-            console.log(`2. Processing file: ${file.name}`);
-            
             // RULE 1: 30MB Limit with Override
             if (file.size > 30 * 1024 * 1024) {
               const confirm = window.confirm(
                 'This file is larger than 30MB. Storing very large files locally might impact app performance. Do you still want to attach it?'
               );
               if (!confirm) {
-                console.log(`Skipped large file: ${file.name}`);
                 return resolve(null);
               }
             }
@@ -151,8 +160,6 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
               reader.onerror = (err) => rej(err);
               reader.readAsDataURL(file);
             });
-            
-            console.log(`3. FileReader done for: ${file.name}`);
 
             let finalDataUrl = initialDataUrl;
 
@@ -161,7 +168,6 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
               finalDataUrl = await new Promise<string>((res, rej) => {
                 const img = new Image();
                 img.onload = () => {
-                  console.log(`4. Image loaded in Canvas for: ${file.name}`);
                   try {
                     const canvas = document.createElement('canvas');
                     const MAX_SIZE = 1080;
@@ -180,7 +186,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     if (!ctx) throw new Error('Could not get canvas context');
-                    
+
                     ctx.drawImage(img, 0, 0, width, height);
                     res(canvas.toDataURL('image/jpeg', 0.7));
                   } catch (err) {
@@ -196,8 +202,6 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
               });
             }
 
-            console.log(`5. Final Data URL ready for: ${file.name}`);
-
             resolve({
               id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2),
               name: file.name,
@@ -212,16 +216,12 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
         });
       });
 
-      console.log('6. Waiting for Promise.all...');
       const results = await Promise.all(processedPromises);
       const newAttachments = results.filter((a): a is Attachment => a !== null);
-      
-      console.log(`7. Processed ${newAttachments.length} attachments successfully`);
 
       if (newAttachments.length > 0) {
-        console.log('8. Updating state...');
-        onUpdate(task.id, { 
-          attachments: [...(task.attachments || []), ...newAttachments] 
+        onUpdate(task.id, {
+          attachments: [...(task.attachments || []), ...newAttachments]
         });
       }
     } catch (error) {
@@ -241,6 +241,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
   // Sync local state when a different task opens
   useEffect(() => {
     if (task) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTitleValue(task.title);
       setNotesValue(task.notes ?? '');
       // Trigger enter animation on next frame
@@ -258,17 +259,8 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
     el.style.height = `${el.scrollHeight}px`;
   }, [notesValue]);
 
-  // Close on Escape key
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleClose();
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [task]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Flush local state on close
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     if (task) {
       const updates: Partial<Task> = {};
       const trimmedTitle = titleValue.trim();
@@ -285,24 +277,64 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
     setIsVisible(false);
     // Give exit animation time to complete
     setTimeout(onClose, 250);
-  };
+  }, [task, titleValue, notesValue, onUpdate, onClose]);
+
+  const swipeHandlers = useSwipe(undefined, handleClose);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [handleClose]);
 
   // Derived date state
   const dueToday = task?.dueDate ? isToday(task.dueDate) : false;
   const dueTomorrow = task?.dueDate ? isTomorrow(task.dueDate) : false;
   const hasDate = !!task?.dueDate;
 
+  const currentReminderTime = task?.reminderTime
+    ? (() => {
+      const d = new Date(task.reminderTime);
+      return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    })()
+    : '';
+
+  const handleReminderChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!task) return;
+    const timeVal = e.target.value;
+    if (!timeVal) {
+      onUpdate(task.id, { reminderTime: undefined, reminderTriggered: false });
+      return;
+    }
+
+    // Request permission if not granted
+    const granted = await requestNotificationPermission();
+    if (!granted) {
+      alert('Notification permissions are required to set reminders.');
+      return;
+    }
+
+    const [hours, minutes] = timeVal.split(':').map(Number);
+    const baseDate = task.dueDate ? new Date(task.dueDate) : new Date();
+    baseDate.setHours(hours, minutes, 0, 0);
+
+    onUpdate(task.id, { reminderTime: baseDate.toISOString(), reminderTriggered: false });
+  };
+
   if (!task) return null;
 
   return (
     <>
-      {/* ── Backdrop ───────────────────────────────────────────────────────────── */}
+      {/* ── Backdrop ───────────────────────────────────────────────────────── */}
       <div
         onClick={handleClose}
         className={[
           'fixed inset-0 z-40',
-          'bg-black/10 dark:bg-black/30 backdrop-blur-[1px]',
-          'transition-opacity duration-250',
+          'bg-black/5 dark:bg-black/40 backdrop-blur-[2px]',
+          'transition-opacity duration-300',
           isVisible ? 'opacity-100' : 'opacity-0',
         ].join(' ')}
         aria-hidden="true"
@@ -311,6 +343,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
       {/* ── Drawer panel ───────────────────────────────────────────────────────── */}
       <div
         ref={drawerRef}
+        {...swipeHandlers}
         role="dialog"
         aria-label={`Details for "${task.title}"`}
         aria-modal="true"
@@ -318,16 +351,16 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
           'fixed top-0 right-0 bottom-0 z-50',
           'w-[380px] max-w-[92vw]',
           'flex flex-col',
-          'bg-white dark:bg-slate-900',
-          'border-l border-slate-100 dark:border-slate-800',
-          'shadow-2xl dark:shadow-[0_0_60px_rgba(0,0,0,0.5)]',
+          'bg-white dark:bg-[#0d1526]',
+          'border-l border-slate-100/60 dark:border-slate-800/40',
+          'shadow-[-8px_0_48px_rgba(0,0,0,0.12)] dark:shadow-[-8px_0_64px_rgba(0,0,0,0.6)]',
           // Slide and fade animation
           'transition-all duration-300 ease-out',
           isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0',
         ].join(' ')}
       >
-        {/* ── Header ─────────────────────────────────────────────────────────── */}
-        <div className="flex items-start gap-3 px-6 pt-6 pb-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+        {/* ── Header ───────────────────────────────────────────────────── */}
+        <div className="flex items-start gap-3 px-6 pt-6 pb-5 border-b border-slate-100/70 dark:border-slate-800/50 flex-shrink-0">
           {/* Completion toggle */}
           <button
             onClick={() => onUpdate(task.id, { isCompleted: !task.isCompleted })}
@@ -393,6 +426,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
         {/* ── Scrollable body ─────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
 
+
           {/* ── Due Date ─────────────────────────────────────────────────────── */}
           <section aria-labelledby="section-due-date">
             <SectionLabel>
@@ -411,37 +445,113 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
                 label="Tomorrow"
                 onClick={() => onUpdate(task.id, { dueDate: getTomorrow() })}
               />
-              <DateChip
-                active={!hasDate}
-                icon={CalendarX}
-                label="Someday"
-                onClick={() => onUpdate(task.id, { dueDate: undefined })}
-              />
+              <div className="relative inline-block">
+                <input
+                  type="date"
+                  className={[
+                    'absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10',
+                    '[&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer'
+                  ].join(' ')}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const d = new Date(e.target.value);
+                      // Adjust for timezone offset to prevent date shifting
+                      const userTimezoneOffset = d.getTimezoneOffset() * 60000;
+                      onUpdate(task.id, { dueDate: new Date(d.getTime() + userTimezoneOffset) });
+                    }
+                  }}
+                  value={task.dueDate ? new Date(task.dueDate.getTime() - task.dueDate.getTimezoneOffset() * 60000).toISOString().split('T')[0] : ''}
+                />
+                <div className="relative z-0">
+                  <DateChip
+                    active={hasDate && !dueToday && !dueTomorrow}
+                    icon={CalendarX}
+                    label={hasDate && !dueToday && !dueTomorrow ? formatDueDate(task.dueDate!) : 'Someday'}
+                    onClick={() => { }}
+                  />
+                </div>
+              </div>
             </div>
-            {/* Current date display */}
-            {hasDate && !dueToday && !dueTomorrow && (
-              <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
-                Scheduled: {formatDueDate(task.dueDate!)}
-              </p>
+            {hasDate && (
+              <div className="mt-3 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 rounded-lg px-3 py-2 border border-slate-100 dark:border-slate-700/50">
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  Selected: <strong className="text-slate-700 dark:text-slate-200">{formatDueDate(task.dueDate!)}</strong>
+                </span>
+                <button
+                  onClick={() => onUpdate(task.id, { dueDate: undefined })}
+                  className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
             )}
           </section>
 
-          {/* ── Daily Routine ─────────────────────────────────────────────────── */}
-          <section aria-labelledby="section-routine">
-            <SectionLabel>
-              <span id="section-routine">🔄 Daily Routine</span>
-            </SectionLabel>
-            <div className="flex items-center gap-3">
-              <ToggleSwitch
-                id="routine-toggle"
-                checked={task.isRoutine}
-                label="Toggle daily routine"
-                onChange={() => onUpdate(task.id, { isRoutine: !task.isRoutine })}
-              />
-              <span className="text-[13px] text-slate-600 dark:text-slate-300 font-medium">
-                {task.isRoutine ? 'Resets daily — never piles up' : 'Mark as a recurring daily habit'}
-              </span>
+          {/* ── Reminders & Repeat ───────────────────────────────────────────── */}
+          <section aria-labelledby="section-reminders-repeat" className="flex flex-col md:grid md:grid-cols-2 md:gap-4 gap-4">
+            <div className="flex flex-col justify-end">
+              <SectionLabel>
+                <span id="section-reminders" className="flex items-center gap-1.5"><Bell size={12} /> Reminder</span>
+              </SectionLabel>
+              <div className="flex items-center gap-2 h-[38px]">
+                <input
+                  type="time"
+                  value={currentReminderTime}
+                  onChange={handleReminderChange}
+                  className={[
+                    'flex-1 px-3 py-2 rounded-xl text-[13px] font-medium h-full',
+                    'bg-slate-50 dark:bg-slate-800/50',
+                    'border border-slate-200 dark:border-slate-700/60',
+                    'text-slate-700 dark:text-slate-300',
+                    'focus:outline-none focus:ring-2 focus:ring-violet-400/50 transition-all duration-150 cursor-pointer',
+                    '[&::-webkit-calendar-picker-indicator]:opacity-50 dark:[&::-webkit-calendar-picker-indicator]:invert'
+                  ].join(' ')}
+                />
+                {task.reminderTime && (
+                  <button
+                    onClick={() => onUpdate(task.id, { reminderTime: undefined, reminderTriggered: false })}
+                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
             </div>
+
+            {preferences?.showRepeat && (
+              <div className="flex flex-col justify-end">
+                <SectionLabel>
+                  <span id="section-routine">🔄 Repeat</span>
+                </SectionLabel>
+                <div className="relative h-[38px]">
+                  <select
+                    value={task.recurrence || (task.isRoutine ? 'daily' : 'none')}
+                    onChange={(e) => {
+                      const opt = e.target.value as 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+                      onUpdate(task.id, { recurrence: opt, isRoutine: opt !== 'none' });
+                    }}
+                    className={[
+                      'w-full appearance-none px-3 py-2 rounded-xl text-[13px] font-medium h-full',
+                      'bg-slate-50 dark:bg-slate-800/50',
+                      'border border-slate-200 dark:border-slate-700/60',
+                      'text-slate-700 dark:text-slate-300',
+                      'focus:outline-none focus:ring-2 focus:ring-violet-400/50 transition-all duration-150 cursor-pointer',
+                      'capitalize'
+                    ].join(' ')}
+                  >
+                    <option value="none">None</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                    <option value="custom">From Calendar</option>
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </span>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* ── Priority ───────────────────────────────────────────────────────── */}
@@ -453,7 +563,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
               {(['high', 'medium', 'low', 'none'] as PriorityValue[]).map((pVal) => {
                 const meta = PRIORITY_META[pVal];
                 const isActive = task.priority === pVal;
-                
+
                 return (
                   <button
                     key={pVal}
@@ -485,8 +595,8 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
               onClick={() => onUpdate(task.id, { inZone: !task.inZone })}
               className={[
                 'w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 border text-sm font-semibold',
-                task.inZone 
-                  ? 'bg-violet-600 border-violet-500 text-white shadow-md shadow-violet-500/20' 
+                task.inZone
+                  ? 'bg-violet-600 border-violet-500 text-white shadow-md shadow-violet-500/20'
                   : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-violet-300 dark:hover:border-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/30'
               ].join(' ')}
             >
@@ -499,89 +609,63 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
           </section>
 
           {/* ── Energy Level ─────────────────────────────────────────────────── */}
-          <section aria-labelledby="section-energy">
-            <SectionLabel>
-              <span id="section-energy">Energy Level</span>
-            </SectionLabel>
-            <div className="flex gap-2">
-              <button
-                onClick={() =>
-                  onUpdate(task.id, {
-                    energyLevel: task.energyLevel === 'high' ? undefined : 'high',
-                  })
-                }
-                aria-pressed={task.energyLevel === 'high'}
-                className={[
-                  'flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold',
-                  'border transition-all duration-150',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400',
-                  task.energyLevel === 'high'
-                    ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300'
-                    : 'bg-white border-slate-200 text-slate-500 hover:border-amber-200 hover:text-amber-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:border-amber-700 dark:hover:text-amber-400',
-                ].join(' ')}
-              >
-                <Zap size={13} />
-                High Energy
-              </button>
+          {preferences?.showEnergyLevel && (
+            <section aria-labelledby="section-energy">
+              <SectionLabel>
+                <span id="section-energy">Energy Level</span>
+              </SectionLabel>
+              <div className="flex gap-2">
+                <button
+                  onClick={() =>
+                    onUpdate(task.id, {
+                      energyLevel: task.energyLevel === 'high' ? undefined : 'high',
+                    })
+                  }
+                  aria-pressed={task.energyLevel === 'high'}
+                  className={[
+                    'flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold',
+                    'border transition-all duration-150',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400',
+                    task.energyLevel === 'high'
+                      ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300'
+                      : 'bg-white border-slate-200 text-slate-500 hover:border-amber-200 hover:text-amber-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:border-amber-700 dark:hover:text-amber-400',
+                  ].join(' ')}
+                >
+                  <Zap size={13} />
+                  High Energy
+                </button>
 
-              <button
-                onClick={() =>
-                  onUpdate(task.id, {
-                    energyLevel: task.energyLevel === 'low' ? undefined : 'low',
-                  })
-                }
-                aria-pressed={task.energyLevel === 'low'}
-                className={[
-                  'flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold',
-                  'border transition-all duration-150',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400',
-                  task.energyLevel === 'low'
-                    ? 'bg-sky-50 border-sky-300 text-sky-700 dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-300'
-                    : 'bg-white border-slate-200 text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:border-sky-700 dark:hover:text-sky-400',
-                ].join(' ')}
-              >
-                <Battery size={13} />
-                Low Energy
-              </button>
-            </div>
-          </section>
+                <button
+                  onClick={() =>
+                    onUpdate(task.id, {
+                      energyLevel: task.energyLevel === 'low' ? undefined : 'low',
+                    })
+                  }
+                  aria-pressed={task.energyLevel === 'low'}
+                  className={[
+                    'flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold',
+                    'border transition-all duration-150',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400',
+                    task.energyLevel === 'low'
+                      ? 'bg-sky-50 border-sky-300 text-sky-700 dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-300'
+                      : 'bg-white border-slate-200 text-slate-500 hover:border-sky-200 hover:text-sky-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:border-sky-700 dark:hover:text-sky-400',
+                  ].join(' ')}
+                >
+                  <Battery size={13} />
+                  Low Energy
+                </button>
+              </div>
+            </section>
+          )}
 
-          {/* ── Notes ────────────────────────────────────────────────────────── */}
-          <section aria-labelledby="section-notes">
-            <SectionLabel>
-              <span id="section-notes">📝 Notes</span>
-            </SectionLabel>
-            <textarea
-              ref={textareaRef}
-              id="task-notes"
-              value={notesValue}
-              onChange={(e) => setNotesValue(e.target.value)}
-              onBlur={() => {
-                if (notesValue !== (task.notes ?? '')) {
-                  onUpdate(task.id, { notes: notesValue.trim() || undefined });
-                }
-              }}
-              placeholder="Brain dump, bullet points, links… anything goes."
-              className={[
-                'w-full min-h-[100px] resize-y rounded-xl px-3.5 py-3',
-                'text-[13px] leading-relaxed font-medium',
-                'text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600',
-                'bg-slate-50 dark:bg-slate-800',
-                'border border-slate-100 dark:border-slate-700',
-                'outline-none transition-all duration-200',
-                'focus:border-violet-300 focus:shadow-[0_0_0_3px_rgba(139,92,246,0.10)] dark:focus:border-violet-600',
-                'overflow-hidden',
-              ].join(' ')}
-              spellCheck={false}
-            />
-          </section>
+
 
           {/* ── Attachments ─────────────────────────────────────── */}
           <section aria-labelledby="section-attachments">
             <SectionLabel>
               <span id="section-attachments">Attachments</span>
             </SectionLabel>
-            
+
             {/* Gallery UI */}
             {task.attachments && task.attachments.length > 0 && (
               <div className="grid grid-cols-3 gap-2 mb-3">
@@ -631,6 +715,98 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onDelete }: TaskDeta
             >
               <Paperclip size={14} />
               Attach File or Photo
+            </button>
+          </section>
+
+          {/* ── Notes ────────────────────────────────────────────────────────── */}
+          {preferences?.showNotes && (
+            <section aria-labelledby="section-notes" className="pt-2">
+              <SectionLabel>
+                <span id="section-notes">📝 Notes</span>
+              </SectionLabel>
+              <textarea
+                ref={textareaRef}
+                id="task-notes"
+                value={notesValue}
+                onChange={(e) => setNotesValue(e.target.value)}
+                onBlur={() => {
+                  if (notesValue !== (task.notes ?? '')) {
+                    onUpdate(task.id, { notes: notesValue.trim() || undefined });
+                  }
+                }}
+                placeholder="Add notes, links, or brain dumps..."
+                className={[
+                  'w-full min-h-[120px] resize-y px-0 py-2',
+                  'text-[13px] leading-relaxed font-medium',
+                  'text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500',
+                  'bg-transparent border-none',
+                  'outline-none focus:ring-0',
+                ].join(' ')}
+                spellCheck={false}
+              />
+            </section>
+          )}
+
+          {/* ── Move & Duplicate Actions ─────────────────────────────────────── */}
+          <section aria-labelledby="section-actions" className="pt-2">
+            <SectionLabel>
+              <span id="section-actions">⚙️ Task Actions</span>
+            </SectionLabel>
+
+            {/* Move to Category */}
+            <div className="mb-3">
+              <label className="flex items-center gap-2 mb-1.5 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                <FolderInput size={12} />
+                Move to Category
+              </label>
+              <div className="relative">
+                <select
+                  id="task-move-category"
+                  value={task.category}
+                  onChange={(e) => onUpdate(task.id, { category: e.target.value })}
+                  className={[
+                    'w-full appearance-none px-3 py-2.5 pr-8 rounded-xl text-[13px] font-medium',
+                    'bg-slate-50 dark:bg-slate-800/80',
+                    'border border-slate-200 dark:border-slate-700/60',
+                    'text-slate-700 dark:text-slate-200',
+                    'focus:outline-none focus:ring-2 focus:ring-violet-400/60 focus:border-violet-400/60',
+                    'transition-all duration-150 cursor-pointer',
+                    'hover:border-violet-300 dark:hover:border-violet-700/50',
+                  ].join(' ')}
+                >
+                  {buckets.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.defaultLabel}
+                    </option>
+                  ))}
+                </select>
+                {/* Custom chevron */}
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </span>
+              </div>
+            </div>
+
+            {/* Duplicate Task */}
+            <button
+              id="task-duplicate-btn"
+              type="button"
+              onClick={() => {
+                if (task) onDuplicate(task.id);
+              }}
+              className={[
+                'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl',
+                'border border-slate-200 dark:border-slate-700/60',
+                'text-[13px] font-medium text-slate-600 dark:text-slate-300',
+                'bg-slate-50 dark:bg-slate-800/60',
+                'hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700',
+                'dark:hover:bg-violet-950/30 dark:hover:border-violet-700/50 dark:hover:text-violet-300',
+                'transition-all duration-200 active:scale-[0.98]',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400',
+              ].join(' ')}
+            >
+              <Copy size={14} />
+              Duplicate Task
             </button>
           </section>
 

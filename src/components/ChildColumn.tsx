@@ -87,6 +87,11 @@ export function ChildColumn({
 
   const incompleteCount = children.filter((t) => !t.isCompleted).length;
 
+  // LTR Swipe to go back
+  const swipeHandlers = useSwipe(undefined, () => {
+    if (onMobileBack) onMobileBack();
+  });
+
   // ── Empty / placeholder state ──────────────────────────────────────────────
   if (!selectedTask) {
     return null;
@@ -98,11 +103,6 @@ export function ChildColumn({
       : incompleteCount === 0
       ? 'All steps done!'
       : `${incompleteCount} of ${children.length} remaining`;
-
-  // LTR Swipe to go back
-  const swipeHandlers = useSwipe(undefined, () => {
-    if (onMobileBack) onMobileBack();
-  });
 
   return (
     <div

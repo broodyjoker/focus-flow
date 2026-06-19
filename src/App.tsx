@@ -20,14 +20,17 @@
 //   toggleTask(id)                  → flip isCompleted
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { Sun, Moon } from 'lucide-react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+
 import { Sidebar } from './components/Sidebar';
 import { TaskListColumn } from './components/TaskListColumn';
 import { ChildColumn } from './components/ChildColumn';
+import { CalendarView } from './components/CalendarView';
 import { TaskDetailDrawer } from './components/TaskDetailDrawer';
 import { ZoneMode } from './components/ZoneMode';
 import { SettingsModal } from './components/SettingsModal';
+import { QuickCaptureModal } from './components/QuickCaptureModal';
+import { GlobalProgressBar } from './components/GlobalProgressBar';
 import { MOCK_TASKS } from './data/mockTasks';
 import type { Task, LifeBucket, Preferences } from './models';
 import { getBucketById, LIFE_BUCKETS, DEFAULT_PREFERENCES } from './models';
@@ -36,6 +39,7 @@ import { getToday, startOfDay } from './utils/dates';
 import { loadData, saveData } from './utils/db';
 import { playSound } from './utils/audio';
 import { sendNotification } from './utils/notifications';
+import { useReminders } from './utils/useReminders';
 
 // ── ID generator ──────────────────────────────────────────────────────────────
 function generateId(): string {
@@ -54,12 +58,15 @@ function App() {
   // ── Navigation state ───────────────────────────────────────────────────────
   const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
   const [activeBucketId, setActiveBucketId] = useState<string>('career-moves');
+  const [activeSmartView, setActiveSmartView] = useState<'all' | 'today' | 'tomorrow' | 'important' | null>(null);
+  const [activeMainView, setActiveMainView] = useState<'tasks' | 'calendar'>('tasks');
   const [activeParentId, setActiveParentId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [slideDirection, setSlideDirection] = useState<'forward' | 'back'>('forward');
 
-  // ── Mobile layout state ────────────────────────────────────────────────────
-  const [mobileView, setMobileView] = useState<'sidebar' | 'col2' | 'col3'>('sidebar');
+  // ── Mobile layout & Drawer state ───────────────────────────────────────────
+  const [mobileView, setMobileView] = useState<'col2' | 'col3'>('col2');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true);
 
   // ── Pomodoro & Zone Mode state ─────────────────────────────────────────────
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
@@ -89,18 +96,21 @@ function App() {
         setPomodoroSeconds((prev) => prev - 1);
       }, 1000);
     } else if (isTimerRunning && pomodoroSeconds === 0) {
-      // Timer finished
-      setIsTimerRunning(false);
+      // Timer finished — all derived values computed inside the closure
+      // so `newMode` is in scope when used by notifications and sound.
       const newMode = timerMode === 'work' ? 'shortBreak' : 'work';
-      setTimerMode(newMode);
-      setPomodoroSeconds(newMode === 'work' ? preferences.pomodoroWorkTime * 60 : preferences.pomodoroBreakTime * 60);
-      
       const isWorkNext = newMode === 'work';
       const title = isWorkNext ? 'Break Over!' : 'Focus Session Complete!';
       const body = isWorkNext ? 'Time to get back to deep work.' : 'Time to take a short break.';
-      
+
       playSound('chime', preferences.soundEffects);
       sendNotification(title, body, preferences.pushNotifications);
+
+      setTimeout(() => {
+        setIsTimerRunning(false);
+        setTimerMode(newMode);
+        setPomodoroSeconds(newMode === 'work' ? preferences.pomodoroWorkTime * 60 : preferences.pomodoroBreakTime * 60);
+      }, 0);
     }
     return () => clearInterval(interval);
   }, [isTimerRunning, pomodoroSeconds, timerMode, preferences]);
@@ -149,10 +159,27 @@ function App() {
   // ── UI state ───────────────────────────────────────────────────────────────
   const [isDark, setIsDark] = useState<boolean>(() => {
     // Persist dark mode preference across sessions
-    return localStorage.getItem('theme') === 'dark';
+    try {
+      return localStorage.getItem('theme') === 'dark';
+    } catch {
+      return false;
+    }
   });
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isQuickCaptureOpen, setIsQuickCaptureOpen] = useState(false);
+
+  // ── Global Keyboard Shortcuts ──────────────────────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsQuickCaptureOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // ── Global Progress State ──────────────────────────────────────────────────
   const [globalProgress, setGlobalProgress] = useState(0);
@@ -166,16 +193,24 @@ function App() {
         const loadedTasks = await loadData<Task[]>('tasks');
         const loadedBuckets = await loadData<LifeBucket[]>('buckets');
         const loadedPreferences = await loadData<Preferences>('preferences');
-        
+
         if (loadedTasks && loadedTasks.length > 0) {
           setTasks(loadedTasks);
         }
         if (loadedBuckets && loadedBuckets.length > 0) {
           setBuckets(loadedBuckets);
         }
-        if (loadedPreferences) {
-          setPreferences(loadedPreferences);
-          setPomodoroSeconds(loadedPreferences.pomodoroWorkTime * 60);
+
+        const initialPrefs = loadedPreferences || DEFAULT_PREFERENCES;
+        setPreferences(initialPrefs);
+        setPomodoroSeconds(initialPrefs.pomodoroWorkTime * 60);
+
+        if (initialPrefs.defaultStartupView === 'zone') {
+          setIsZoneModeActive(true);
+        } else if (['all', 'today', 'important'].includes(initialPrefs.defaultStartupView)) {
+          setActiveSmartView(initialPrefs.defaultStartupView as 'all' | 'today' | 'important');
+        } else {
+          setActiveSmartView(null);
         }
       } catch (err) {
         console.error('Failed to load from DB, falling back to mocks', err);
@@ -221,15 +256,27 @@ function App() {
 
   const toggleDark = useCallback(() => setIsDark((d) => !d), []);
 
-  // ── Navigation handlers ────────────────────────────────────────────────────
+  // ── Navigation actions ─────────────────────────────────────────────────────
 
-  /** Clicking a bucket in the sidebar resets depth to root. */
   const selectBucket = useCallback((bucketId: string) => {
-    setSlideDirection('back');
+    setActiveMainView('tasks');
     setActiveBucketId(bucketId);
+    setActiveSmartView(null);
     setActiveParentId(null);
     setSelectedTaskId(null);
     setMobileView('col2');
+    setSlideDirection('back');
+    setIsSidebarOpen(false);
+  }, []);
+
+  const selectSmartView = useCallback((view: 'all' | 'today' | 'tomorrow' | 'important') => {
+    setActiveMainView('tasks');
+    setActiveSmartView(view);
+    setActiveParentId(null);
+    setSelectedTaskId(null);
+    setMobileView('col2');
+    setSlideDirection('back');
+    setIsSidebarOpen(false);
   }, []);
 
   /** Clicking a task in column 2 either selects it (opening column 3) or unselects it. */
@@ -282,12 +329,7 @@ function App() {
     setMobileView('col2'); // Ensure we stay in col2 on mobile
   }, [activeParentId, tasks]);
 
-  /** Mobile: Back from Col 2 root to Categories */
-  const mobileBackToCategories = useCallback(() => {
-    setMobileView('sidebar');
-  }, []);
-
-  /** Mobile: Back from Col 3 to Col 2 */
+  // Mobile: Back from Col 3 to Col 2
   const mobileBackToCol2 = useCallback(() => {
     setMobileView('col2');
   }, []);
@@ -374,24 +416,6 @@ function App() {
     });
   }, [preferences.soundEffects]);
 
-  /** Set or clear the dueDate on any task. */
-  const setDueDate = useCallback((taskId: string, date: Date | undefined) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, dueDate: date } : task,
-      ),
-    );
-  }, []);
-
-  /** Toggle the isRoutine flag on a task. */
-  const toggleRoutine = useCallback((taskId: string) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, isRoutine: !task.isRoutine } : task,
-      ),
-    );
-  }, []);
-
   /**
    * Universal update for the Task Detail Drawer and inline actions.
    * Accepts any Partial<Task> subset so a single handler covers all fields.
@@ -438,34 +462,91 @@ function App() {
     setSelectedTaskId((current) => (current === taskId ? null : current));
   }, []);
 
+  /**
+   * Duplicate a task (and all its subtasks) with new IDs.
+   * The clone is inserted immediately after the original.
+   */
+  const duplicateTask = useCallback((taskId: string) => {
+    setTasks((prev) => {
+      const original = prev.find((t) => t.id === taskId);
+      if (!original) return prev;
+
+      // Build a mapping from old IDs → new IDs for the task and all descendants
+      const idMap = new Map<string, string>();
+      const idsToClone: string[] = [taskId];
+
+      // Collect all descendants in BFS order
+      let i = 0;
+      while (i < idsToClone.length) {
+        const currentId = idsToClone[i];
+        for (const t of prev) {
+          if (t.parentId === currentId) idsToClone.push(t.id);
+        }
+        i++;
+      }
+
+      // Generate new IDs for everything
+      for (const id of idsToClone) {
+        idMap.set(id, generateId());
+      }
+
+      // Build cloned tasks, remapping parent IDs
+      const clones = idsToClone.map((id) => {
+        const src = prev.find((t) => t.id === id)!;
+        return {
+          ...src,
+          id: idMap.get(id)!,
+          parentId: src.parentId ? idMap.get(src.parentId) ?? src.parentId : undefined,
+          title: id === taskId ? `${src.title} (Copy)` : src.title,
+          isCompleted: false,
+        };
+      });
+
+      // Insert clones immediately after the original block (after its last descendant)
+      const lastOriginalIdx = prev.reduce(
+        (max, t, idx) => (idsToClone.includes(t.id) ? idx : max),
+        prev.findIndex((t) => t.id === taskId),
+      );
+
+      const updated = [...prev];
+      updated.splice(lastOriginalIdx + 1, 0, ...clones);
+      return updated;
+    });
+  }, []);
+
   // ── Auto-expire routines on mount ─────────────────────────────────────────────────────
   // If a routine task has a past dueDate: roll it forward to Today and
   // uncheck it. This runs once on load so routines never pile up as "overdue".
   useEffect(() => {
     const today = getToday();
-    setTasks((prev) =>
-      prev.map((task) => {
-        if (
-          task.isRoutine &&
-          task.dueDate &&
-          startOfDay(task.dueDate).getTime() < today.getTime()
-        ) {
-          return { ...task, dueDate: today, isCompleted: false };
-        }
-        return task;
-      }),
-    );
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    setTimeout(() => {
+      setTasks((prev) =>
+        prev.map((task) => {
+          if (
+            task.isRoutine &&
+            task.dueDate &&
+            startOfDay(task.dueDate).getTime() < today.getTime()
+          ) {
+            return { ...task, dueDate: today, isCompleted: false };
+          }
+          return task;
+        })
+      );
+    }, 0);
+  }, []);
 
 
   // ── Derived: sidebar badge counts ──────────────────────────────────────────
   // Only top-level incomplete tasks count toward the bucket badges.
-  const taskCountByBucket = tasks.reduce<Record<string, number>>((acc, task) => {
-    if (!task.isCompleted && !task.parentId) {
-      acc[task.category] = (acc[task.category] ?? 0) + 1;
-    }
-    return acc;
-  }, {});
+  // Memoized so the Sidebar doesn't re-render on unrelated state changes.
+  const taskCountByBucket = useMemo(() =>
+    tasks.reduce<Record<string, number>>((acc, task) => {
+      if (!task.isCompleted && !task.parentId) {
+        acc[task.category] = (acc[task.category] ?? 0) + 1;
+      }
+      return acc;
+    }, {})
+  , [tasks]);
 
   // ── Animation ──────────────────────────────────────────────────────────────
   const slideClass = slideDirection === 'forward' ? 'col-slide-forward' : 'col-slide-back';
@@ -480,12 +561,15 @@ function App() {
   // The task whose details are currently open (null = drawer hidden)
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) ?? null : null;
 
+  // ── Smart Reminders Scheduler ──────────────────────────────────────────────
+  useReminders(tasks, preferences, updateTask);
+
   if (isDbLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-950 font-sans antialiased text-white">
         <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-violet-600 to-fuchsia-500 animate-pulse flex items-center justify-center shadow-[0_0_40px_rgba(139,92,246,0.3)]">
           <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
           </svg>
         </div>
         <p className="mt-4 text-xs font-semibold tracking-widest uppercase text-slate-500 animate-pulse">
@@ -516,74 +600,92 @@ function App() {
     <div className="flex h-screen w-screen overflow-hidden font-sans antialiased bg-white dark:bg-slate-900 relative">
 
       {/* ── Global Ephemeral Progress Bar ───────────────────────────────────── */}
-      {showGlobalProgress && (
-        <div className="fixed top-0 left-0 right-0 w-full h-1.5 z-[99999] overflow-hidden pointer-events-none">
-          <div 
-            className={[
-              'h-full',
-              'transition-[width] duration-1000 ease-in-out shadow-[0_2px_10px_rgba(16,185,129,0.3)]',
-              globalProgress === 100 ? 'animate-progress-pulse' : ''
-            ].join(' ')}
-            style={{ 
-              width: `${globalProgress}%`,
-              backgroundImage: 'linear-gradient(to right, #ef4444 0%, #f97316 20%, #eab308 40%, #10b981 65%, #10b981 100%)',
-              backgroundSize: '100vw 100%',
-              backgroundPosition: 'left center',
-              backgroundRepeat: 'no-repeat'
-            }} 
-          />
-        </div>
-      )}
+      <GlobalProgressBar 
+        showGlobalProgress={showGlobalProgress} 
+        globalProgress={globalProgress} 
+      />
 
-      {/* Column 1 — fixed sidebar (bucket navigation) */}
+      {/* Sidebar Drawer */}
       <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
         buckets={buckets}
-        isActiveMobileView={mobileView === 'sidebar'}
         activeBucketId={activeBucketId}
+        activeSmartView={activeSmartView}
         taskCountByBucket={taskCountByBucket}
         onSelectBucket={selectBucket}
+        onSelectSmartView={selectSmartView}
         isDark={isDark}
         toggleDark={toggleDark}
         onToggleZoneMode={toggleZoneMode}
         onReorderBuckets={reorderBuckets}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onToggleCalendar={() => { setActiveMainView('calendar'); setActiveSmartView(null); }}
       />
 
-      {/* Column 2 — task list at active level */}
-      <TaskListColumn
-        isActiveMobileView={mobileView === 'col2'}
-        activeBucketId={activeBucketId}
-        tasks={tasks}
-        activeParentId={activeParentId}
-        selectedTaskId={selectedTaskId}
-        animKey={col2AnimKey}
-        slideClass={slideClass}
-        onAdd={addTaskAtLevel}
-        onToggle={toggleTask}
-        onSelectTask={selectTask}
-        onBack={navigateBack}
-        onMobileBackToCategories={mobileBackToCategories}
-        onOpenDetail={openDetail}
-        onUpdateTask={updateTask}
-        onToggleTimer={toggleTimer}
-      />
+      {activeMainView === 'calendar' ? (
+        <CalendarView 
+          tasks={tasks}
+          preferences={preferences}
+          onAddTask={(title, dueDate) => {
+            const newTask = {
+              id: generateId(),
+              title,
+              category: activeBucketId || 'career-moves',
+              priority: 'none' as const,
+              isRoutine: false,
+              isCompleted: false,
+              dueDate
+            };
+            setTasks(prev => [...prev, newTask]);
+          }}
+          onUpdateTask={updateTask}
+          onSelectTask={openDetail}
+          onToggleTimer={toggleTimer}
+          onClose={() => setActiveMainView('tasks')}
+        />
+      ) : (
+        <>
+          {/* Column 2 — task list at active level */}
+          <TaskListColumn
+            isActiveMobileView={mobileView === 'col2'}
+            buckets={buckets}
+            activeBucketId={activeBucketId}
+            activeSmartView={activeSmartView}
+            tasks={tasks}
+            activeParentId={activeParentId}
+            selectedTaskId={selectedTaskId}
+            animKey={col2AnimKey}
+            slideClass={slideClass}
+            onAdd={addTaskAtLevel}
+            onToggle={toggleTask}
+            onSelectTask={selectTask}
+            onBack={navigateBack}
+            onOpenSidebar={() => setIsSidebarOpen(true)}
+            onOpenDetail={openDetail}
+            onUpdateTask={updateTask}
+            onToggleTimer={toggleTimer}
+          />
 
-      {/* Column 3 — children of the selected task */}
-      <ChildColumn
-        isActiveMobileView={mobileView === 'col3'}
-        parentListName={col2Title}
-        tasks={tasks}
-        selectedTaskId={selectedTaskId}
-        animKey={col3AnimKey}
-        slideClass={slideClass}
-        onAdd={addTaskAtLevel}
-        onToggle={toggleTask}
-        onShiftInto={shiftInto}
-        onOpenDetail={openDetail}
-        onMobileBack={mobileBackToCol2}
-        onUpdateTask={updateTask}
-        onToggleTimer={toggleTimer}
-      />
+          {/* Column 3 — children of the selected task */}
+          <ChildColumn
+            isActiveMobileView={mobileView === 'col3'}
+            parentListName={col2Title}
+            tasks={tasks}
+            selectedTaskId={selectedTaskId}
+            animKey={col3AnimKey}
+            slideClass={slideClass}
+            onAdd={addTaskAtLevel}
+            onToggle={toggleTask}
+            onSelectTask={selectTask}
+            onBack={navigateBack}
+            onOpenSidebar={() => setIsSidebarOpen(true)}
+            onOpenDetail={openDetail}
+            onUpdateTask={updateTask}
+            onToggleTimer={toggleTimer}
+          />
+        </>
+      )}
 
       {/* Task Detail Drawer — portaled over Col 3 */}
       <TaskDetailDrawer
@@ -591,11 +693,14 @@ function App() {
         onClose={closeDetail}
         onUpdate={updateTask}
         onDelete={deleteTask}
+        onDuplicate={duplicateTask}
+        buckets={buckets}
+        preferences={preferences}
       />
 
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
         tasks={tasks}
         setTasks={setTasks}
         buckets={buckets}
@@ -603,6 +708,28 @@ function App() {
         preferences={preferences}
         setPreferences={setPreferences}
       />
+
+      {/* Quick Capture Modal (Ctrl+K) */}
+      <QuickCaptureModal
+        isOpen={isQuickCaptureOpen}
+        onClose={() => setIsQuickCaptureOpen(false)}
+        onAdd={addTaskAtLevel}
+        buckets={buckets}
+        defaultBucketId={activeBucketId}
+      />
+
+      {/* Mobile Floating Action Button (FAB) */}
+      <button
+        type="button"
+        onClick={() => setIsQuickCaptureOpen(true)}
+        className="md:hidden fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-[0_8px_32px_rgba(124,58,237,0.3)] hover:brightness-110 active:scale-95 transition-all duration-200 border border-violet-500/20"
+        aria-label="Quick capture task"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 12h14" />
+          <path d="M12 5v14" />
+        </svg>
+      </button>
     </div>
   );
 }

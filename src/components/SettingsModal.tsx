@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Folder, HardDrive, Timer, Bell, Download, Upload, Trash2, Plus, Edit2 } from 'lucide-react';
+import { X, Folder, HardDrive, Timer, Bell, Download, Upload, Trash2, Plus, Edit2, Settings2, Link, Cloud, Database, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import type { Task, LifeBucket, Preferences } from '../models';
+import { DEFAULT_PREFERENCES } from '../models';
+import { useSwipe } from '../utils/useSwipe';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -14,7 +16,7 @@ interface SettingsModalProps {
   setPreferences: React.Dispatch<React.SetStateAction<Preferences>>;
 }
 
-type TabType = 'categories' | 'storage' | 'focus' | 'audio' | 'backup';
+type TabType = 'general' | 'categories' | 'storage' | 'focus' | 'audio' | 'backup' | 'connected';
 
 export function SettingsModal({
   isOpen,
@@ -26,11 +28,13 @@ export function SettingsModal({
   preferences,
   setPreferences,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('categories');
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<TabType>('general');
+  // BeforeInstallPromptEvent is a non-standard browser API without official TS types;
+  // we use `unknown` and cast on use to avoid an unsafe `any`.
+  const [installPrompt, setInstallPrompt] = useState<unknown>(null);
 
   useEffect(() => {
-    const handleBeforeInstallPrompt = (e: any) => {
+    const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setInstallPrompt(e);
     };
@@ -41,18 +45,23 @@ export function SettingsModal({
 
   const handleInstallClick = async () => {
     if (!installPrompt) return;
-    installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
+    // Cast to the non-standard BeforeInstallPromptEvent interface
+    const prompt = installPrompt as { prompt: () => void; userChoice: Promise<{ outcome: string }> };
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice;
     if (outcome === 'accepted') {
       setInstallPrompt(null);
     }
   };
+
+  const swipeHandlers = useSwipe(undefined, onClose);
 
   return (
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md">
           <motion.div 
+            {...swipeHandlers}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
@@ -63,6 +72,12 @@ export function SettingsModal({
             {/* Sidebar Tabs */}
             <div className="w-full flex-shrink-0 flex overflow-x-auto border-b border-slate-200 dark:border-slate-800 md:w-64 md:h-full md:flex-col md:border-b-0 md:border-r bg-slate-50 dark:bg-slate-800/60 p-4">
           <nav className="flex-1 flex flex-row md:flex-col gap-2">
+            <TabButton 
+              active={activeTab === 'general'} 
+              onClick={() => setActiveTab('general')} 
+              icon={<Settings2 size={18} />} 
+              label="General" 
+            />
             <TabButton 
               active={activeTab === 'categories'} 
               onClick={() => setActiveTab('categories')} 
@@ -92,6 +107,12 @@ export function SettingsModal({
               onClick={() => setActiveTab('backup')} 
               icon={<Download size={18} />} 
               label="Backup & Restore" 
+            />
+            <TabButton 
+              active={activeTab === 'connected'} 
+              onClick={() => setActiveTab('connected')} 
+              icon={<Link size={18} />} 
+              label="Connected Services" 
             />
           </nav>
             
@@ -126,11 +147,13 @@ export function SettingsModal({
           </button>
 
           <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 md:p-8">
+            {activeTab === 'general' && <GeneralTab preferences={preferences} setPreferences={setPreferences} />}
             {activeTab === 'categories' && <CategoriesTab buckets={buckets} setBuckets={setBuckets} tasks={tasks} />}
             {activeTab === 'storage' && <StorageTab tasks={tasks} setTasks={setTasks} />}
             {activeTab === 'focus' && <FocusTab preferences={preferences} setPreferences={setPreferences} />}
             {activeTab === 'audio' && <AudioTab preferences={preferences} setPreferences={setPreferences} />}
             {activeTab === 'backup' && <BackupTab tasks={tasks} buckets={buckets} preferences={preferences} setTasks={setTasks} setBuckets={setBuckets} setPreferences={setPreferences} onClose={onClose} />}
+            {activeTab === 'connected' && <ConnectedTab preferences={preferences} setPreferences={setPreferences} buckets={buckets} setBuckets={setBuckets} />}
           </div>
         </div>
 
@@ -159,9 +182,80 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
   );
 }
 
-// ── Tabs Implementation (Placeholders for now) ───────────────────────────────
+// ── Tabs Implementation ──────────────────────────────────────────────────────
 
-function CategoriesTab({ buckets, setBuckets, tasks }: any) {
+function GeneralTab({ preferences, setPreferences }: { preferences: Preferences, setPreferences: React.Dispatch<React.SetStateAction<Preferences>> }) {
+  return (
+    <div className="space-y-8">
+      <div>
+        <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">General Preferences</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Customize your default startup view and UI.</p>
+        
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl group hover:border-violet-300 dark:hover:border-violet-700/50 transition-colors">
+            <div>
+              <p className="font-medium text-slate-700 dark:text-slate-200">Default Startup View</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Which view should open on startup</p>
+            </div>
+            <select
+              value={preferences.defaultStartupView}
+              onChange={(e) => setPreferences({ ...preferences, defaultStartupView: e.target.value as 'main' | 'zone' | 'today' | 'important' | 'all' })}
+              className="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              <option value="main">Main Categories</option>
+              <option value="zone">Zone Mode</option>
+              <option value="today">Today</option>
+              <option value="important">Important</option>
+              <option value="all">All Uncompleted</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">Task Fields Visibility</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Hide optional fields from the task editor.</p>
+        
+        <div className="space-y-3">
+          <div className="flex flex-row items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div>
+              <h4 className="font-medium text-slate-900 dark:text-slate-100">Energy Level</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Show High/Low energy buttons</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" className="sr-only peer" checked={preferences.showEnergyLevel} onChange={(e) => setPreferences({ ...preferences, showEnergyLevel: e.target.checked })} />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-violet-300 dark:peer-focus:ring-violet-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-violet-600"></div>
+            </label>
+          </div>
+          
+          <div className="flex flex-row items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div>
+              <h4 className="font-medium text-slate-900 dark:text-slate-100">Repeat/Recurrence</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Show routine and repeating options</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" className="sr-only peer" checked={preferences.showRepeat} onChange={(e) => setPreferences({ ...preferences, showRepeat: e.target.checked })} />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-violet-300 dark:peer-focus:ring-violet-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-violet-600"></div>
+            </label>
+          </div>
+          
+          <div className="flex flex-row items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div>
+              <h4 className="font-medium text-slate-900 dark:text-slate-100">Notes/Description</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Show notes text area</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" className="sr-only peer" checked={preferences.showNotes} onChange={(e) => setPreferences({ ...preferences, showNotes: e.target.checked })} />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-violet-300 dark:peer-focus:ring-violet-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-violet-600"></div>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategoriesTab({ buckets, setBuckets, tasks }: { buckets: LifeBucket[], setBuckets: React.Dispatch<React.SetStateAction<LifeBucket[]>>, tasks: Task[] }) {
   const [newEmoji, setNewEmoji] = useState('🌟');
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -255,7 +349,7 @@ function CategoriesTab({ buckets, setBuckets, tasks }: any) {
                 <span className="font-medium text-slate-700 dark:text-slate-200">{b.defaultLabel}</span>
               )}
               
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                 {editingId === b.id ? (
                   <button onClick={() => handleSaveEdit(b.id)} className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg text-sm font-medium">Save</button>
                 ) : (
@@ -273,7 +367,9 @@ function CategoriesTab({ buckets, setBuckets, tasks }: any) {
   );
 }
 
-function StorageTab({ tasks, setTasks }: any) {
+function StorageTab({ tasks, setTasks }: { tasks: Task[], setTasks: React.Dispatch<React.SetStateAction<Task[]>> }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const handleSmartCleanup = () => {
     if (!window.confirm('This will permanently delete attachments from ALL completed tasks. Proceed?')) return;
     
@@ -283,6 +379,27 @@ function StorageTab({ tasks, setTasks }: any) {
         : t
     ));
     alert('Smart Cleanup complete! Unnecessary storage has been freed.');
+  };
+
+  const handleClearData = () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    
+    if (window.confirm("Are you absolutely sure? This will permanently delete all your tasks, categories, and settings. This cannot be undone.")) {
+      // Clear IndexedDB — must match the DB_NAME in utils/db.ts
+      indexedDB.deleteDatabase('TaskZoneDB');
+      // Clear LocalStorage
+      localStorage.clear();
+      
+      // Fallback reload
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
+    } else {
+      setConfirmDelete(false);
+    }
   };
 
   const allFiles = tasks.flatMap((t: Task) => 
@@ -360,12 +477,43 @@ function StorageTab({ tasks, setTasks }: any) {
             </div>
           )}
         </div>
+
+        {/* Danger Zone */}
+        <div className="border-t border-red-200/50 dark:border-red-900/30 pt-8 mt-8">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle size={20} className="text-red-500" />
+            <h4 className="text-lg font-bold text-red-600 dark:text-red-500">Danger Zone</h4>
+          </div>
+          <div className="p-5 rounded-2xl border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/10">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h5 className="font-bold text-slate-900 dark:text-slate-100">Clear All Local Data</h5>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Permanently delete all tasks, categories, and settings. This will reset the app to factory defaults.
+                </p>
+              </div>
+              <div className="flex flex-col sm:items-end w-full sm:w-auto">
+                <button 
+                  onClick={handleClearData}
+                  onBlur={() => setConfirmDelete(false)}
+                  className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all w-full sm:w-auto ${
+                    confirmDelete 
+                      ? 'bg-red-600 text-white hover:bg-red-700 shadow-md shadow-red-900/20' 
+                      : 'border-2 border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30'
+                  }`}
+                >
+                  {confirmDelete ? 'Click again to confirm delete' : 'Clear Data'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function DraggableSegment({ value, onChange, min, max, isBreak = false }: { value: number, onChange: (v: any) => void, min: number, max: number, isBreak?: boolean }) {
+function DraggableSegment({ value, onChange, min, max, isBreak = false }: { value: number, onChange: (v: number) => void, min: number, max: number, isBreak?: boolean }) {
   const [isDragging, setIsDragging] = useState(false);
   const startYRef = useRef(0);
   const startValueRef = useRef(value);
@@ -448,7 +596,7 @@ function DraggableSegment({ value, onChange, min, max, isBreak = false }: { valu
   );
 }
 
-function DualDraggableClock({ minutes, seconds, setMinutes, setSeconds, isBreak }: any) {
+function DualDraggableClock({ minutes, seconds, setMinutes, setSeconds, isBreak }: { minutes: number, seconds: number, setMinutes: (v: number) => void, setSeconds: (v: number) => void, isBreak: boolean }) {
   const colonColor = isBreak 
     ? 'text-emerald-500/80 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]' 
     : 'text-red-500/80 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]';
@@ -462,7 +610,7 @@ function DualDraggableClock({ minutes, seconds, setMinutes, setSeconds, isBreak 
   );
 }
 
-function FocusTab({ preferences, setPreferences }: any) {
+function FocusTab({ preferences, setPreferences }: { preferences: Preferences, setPreferences: React.Dispatch<React.SetStateAction<Preferences>> }) {
   const initialWorkMins = Math.floor(preferences.pomodoroWorkTime);
   const initialWorkSecs = Math.round((preferences.pomodoroWorkTime % 1) * 60);
   const initialBreakMins = Math.floor(preferences.pomodoroBreakTime);
@@ -529,7 +677,7 @@ function FocusTab({ preferences, setPreferences }: any) {
   );
 }
 
-function AudioTab({ preferences, setPreferences }: any) {
+function AudioTab({ preferences, setPreferences }: { preferences: Preferences, setPreferences: React.Dispatch<React.SetStateAction<Preferences>> }) {
   const isDenied = typeof Notification !== 'undefined' && Notification.permission === 'denied';
 
   const togglePush = async () => {
@@ -594,8 +742,48 @@ function AudioTab({ preferences, setPreferences }: any) {
   );
 }
 
-function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPreferences, onClose }: any) {
+function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPreferences, onClose }: { tasks: Task[], buckets: LifeBucket[], preferences: Preferences, setTasks: React.Dispatch<React.SetStateAction<Task[]>>, setBuckets: React.Dispatch<React.SetStateAction<LifeBucket[]>>, setPreferences: React.Dispatch<React.SetStateAction<Preferences>>, onClose: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Cloud Sync Mock States
+  const [isDriveConnected, setIsDriveConnected] = useState(() => localStorage.getItem('isDriveConnected') === 'true');
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(() => localStorage.getItem('isSupabaseConnected') === 'true');
+  const [isConnectingDrive, setIsConnectingDrive] = useState(false);
+  const [isConnectingSupabase, setIsConnectingSupabase] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('isDriveConnected', String(isDriveConnected));
+  }, [isDriveConnected]);
+
+  useEffect(() => {
+    localStorage.setItem('isSupabaseConnected', String(isSupabaseConnected));
+  }, [isSupabaseConnected]);
+
+  const handleConnectDrive = () => {
+    if (isDriveConnected) {
+      setIsDriveConnected(false);
+      return;
+    }
+    setIsConnectingDrive(true);
+    setTimeout(() => {
+      setIsConnectingDrive(false);
+      setIsDriveConnected(true);
+      if (isSupabaseConnected) setIsSupabaseConnected(false);
+    }, 1500);
+  };
+
+  const handleConnectSupabase = () => {
+    if (isSupabaseConnected) {
+      setIsSupabaseConnected(false);
+      return;
+    }
+    setIsConnectingSupabase(true);
+    setTimeout(() => {
+      setIsConnectingSupabase(false);
+      setIsSupabaseConnected(true);
+      if (isDriveConnected) setIsDriveConnected(false);
+    }, 1500);
+  };
 
   const handleExport = () => {
     const backup = { tasks, buckets, preferences, version: 1 };
@@ -623,18 +811,36 @@ function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPrefe
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.tasks && parsed.buckets) {
-          setTasks(parsed.tasks);
+        if (parsed.tasks && Array.isArray(parsed.tasks) && parsed.buckets && Array.isArray(parsed.buckets)) {
+          // Sanitize tasks to ensure they match current schema
+          const sanitizedTasks = parsed.tasks.map((task: Record<string, unknown>) => ({
+            ...task,
+            dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+            recurrence: task.recurrence || (task.isRoutine ? 'daily' : 'none'),
+            notes: task.notes || '',
+            reminderTime: task.reminderTime || undefined,
+            reminderTriggered: !!task.reminderTriggered,
+          }));
+
+          // Sanitize and deep merge preferences
+          const sanitizedPreferences = {
+            ...DEFAULT_PREFERENCES,
+            ...preferences,
+            ...(parsed.preferences || {}),
+          };
+
+          setTasks(sanitizedTasks);
           setBuckets(parsed.buckets);
-          if (parsed.preferences) setPreferences(parsed.preferences);
+          setPreferences(sanitizedPreferences);
+          
           alert('Backup restored successfully!');
           onClose(); // Close modal on success
         } else {
-          alert('Invalid backup file. Missing tasks or buckets array.');
+          alert('Invalid backup file. Missing or invalid tasks/buckets array.');
         }
       } catch (err) {
         console.error(err);
-        alert('Failed to parse backup JSON. File may be corrupted.');
+        alert('Failed to parse backup JSON. File may be corrupted or invalid format.');
       }
     };
     reader.readAsText(file);
@@ -642,11 +848,20 @@ function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPrefe
 
   return (
     <div className="space-y-8">
-      <div>
-        <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">Backup & Restore</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Export your offline database or restore from a JSON file.</p>
+      {(isDriveConnected || isSupabaseConnected) && (
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl p-4 flex items-center gap-3 shadow-sm">
+          <CheckCircle2 size={20} className="text-emerald-500" />
+          <span className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+            Cloud Sync Active via {isDriveConnected ? 'Google Drive' : 'Supabase'}
+          </span>
+        </div>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">Backup & Cloud Sync</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Manage your data locally or securely sync it to the cloud.</p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl text-center">
             <div className="w-12 h-12 bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 rounded-full flex items-center justify-center mx-auto mb-4">
               <Download size={24} />
@@ -680,6 +895,306 @@ function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPrefe
               ref={fileInputRef}
               onChange={handleImport}
             />
+          </div>
+        </div>
+
+        <div className="border-t border-slate-200 dark:border-slate-800/60 pt-8">
+          <h4 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">Cloud Synchronization</h4>
+          <div className="space-y-4">
+            
+            {/* Google Drive Card */}
+            <div className={`p-5 rounded-2xl border ${isDriveConnected ? 'border-violet-300 dark:border-violet-700/50 bg-violet-50/50 dark:bg-violet-900/10' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120]'} transition-colors`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isDriveConnected ? 'bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
+                    <Cloud size={24} />
+                  </div>
+                  <div>
+                    <h5 className="font-bold text-slate-900 dark:text-slate-100">Google Drive Sync</h5>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Sync your data directly to your personal Google Drive app folder.</p>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:items-end">
+                  <button 
+                    onClick={handleConnectDrive}
+                    disabled={isConnectingDrive || isConnectingSupabase}
+                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 w-full sm:w-auto ${
+                      isConnectingDrive ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed' :
+                      isDriveConnected ? 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40' :
+                      isSupabaseConnected ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed' :
+                      'bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100'
+                    }`}
+                  >
+                    {isConnectingDrive ? (
+                      <><RefreshCw size={16} className="animate-spin" /> Connecting...</>
+                    ) : isDriveConnected ? (
+                      'Disconnect'
+                    ) : (
+                      'Connect Drive'
+                    )}
+                  </button>
+                  {isDriveConnected && (
+                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-2 text-center sm:text-right w-full">
+                      Status: Connected as user@gmail.com
+                    </span>
+                  )}
+                  {(!isDriveConnected && isSupabaseConnected) && (
+                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-2 text-center sm:text-right w-full">
+                      Supabase is currently active
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Supabase Card */}
+            <div className={`p-5 rounded-2xl border ${isSupabaseConnected ? 'border-violet-300 dark:border-violet-700/50 bg-violet-50/50 dark:bg-violet-900/10' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120]'} transition-colors`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isSupabaseConnected ? 'bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
+                    <Database size={24} />
+                  </div>
+                  <div>
+                    <h5 className="font-bold text-slate-900 dark:text-slate-100">Supabase Sync</h5>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Securely sync your tasks to a fast, dedicated cloud database.</p>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:items-end">
+                  <button 
+                    onClick={handleConnectSupabase}
+                    disabled={isConnectingSupabase || isConnectingDrive}
+                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 w-full sm:w-auto ${
+                      isConnectingSupabase ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed' :
+                      isSupabaseConnected ? 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40' :
+                      isDriveConnected ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed' :
+                      'bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100'
+                    }`}
+                  >
+                    {isConnectingSupabase ? (
+                      <><RefreshCw size={16} className="animate-spin" /> Connecting...</>
+                    ) : isSupabaseConnected ? (
+                      'Disconnect'
+                    ) : (
+                      'Connect Supabase'
+                    )}
+                  </button>
+                  {isSupabaseConnected && (
+                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-2 text-center sm:text-right w-full">
+                      Status: Connected (Cloud Database Active)
+                    </span>
+                  )}
+                  {(!isSupabaseConnected && isDriveConnected) && (
+                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500 mt-2 text-center sm:text-right w-full">
+                      Google Drive is currently active
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConnectedTab({ preferences, setPreferences, buckets, setBuckets }: { preferences: Preferences, setPreferences: React.Dispatch<React.SetStateAction<Preferences>>, buckets: LifeBucket[], setBuckets: React.Dispatch<React.SetStateAction<LifeBucket[]>> }) {
+  const isConnected = preferences.isGoogleCalendarConnected;
+  const mockLists = ['Work', 'Personal', 'Family'];
+
+  const toggleConnection = () => {
+    setPreferences(prev => ({
+      ...prev,
+      isGoogleCalendarConnected: !prev.isGoogleCalendarConnected,
+      mockGoogleLists: !prev.isGoogleCalendarConnected ? [] : prev.mockGoogleLists
+    }));
+  };
+
+  const toggleList = (listName: string) => {
+    setPreferences(prev => {
+      const currentLists = prev.mockGoogleLists || [];
+      const isSelected = currentLists.includes(listName);
+      let newLists;
+      if (isSelected) {
+        newLists = currentLists.filter(l => l !== listName);
+        // Clean up mock bucket
+        setBuckets(b => b.filter(bucket => bucket.id !== `gcal-${listName.toLowerCase()}`));
+      } else {
+        newLists = [...currentLists, listName];
+        // Create mock bucket
+        setBuckets(b => [
+          ...b,
+          {
+            id: `gcal-${listName.toLowerCase()}`,
+            defaultLabel: `[GCal] ${listName}`,
+            color: 'bg-sky-500',
+            emoji: '📅'
+          }
+        ]);
+      }
+      return { ...prev, mockGoogleLists: newLists };
+    });
+  };
+
+  // Notion Mock States
+  const [isNotionConnected, setIsNotionConnected] = useState(() => localStorage.getItem('isNotionConnected') === 'true');
+  const [isConnectingNotion, setIsConnectingNotion] = useState(false);
+  const mockNotionDbs = ['Task Master DB', 'Life OS Tracker', 'Content Pipeline'];
+  const [selectedNotionDbs, setSelectedNotionDbs] = useState<string[]>([]);
+
+  useEffect(() => {
+    localStorage.setItem('isNotionConnected', String(isNotionConnected));
+  }, [isNotionConnected]);
+
+  const handleConnectNotion = () => {
+    if (isNotionConnected) {
+      setIsNotionConnected(false);
+      setSelectedNotionDbs([]);
+      return;
+    }
+    setIsConnectingNotion(true);
+    setTimeout(() => {
+      setIsConnectingNotion(false);
+      setIsNotionConnected(true);
+    }, 1500);
+  };
+
+  const toggleNotionDb = (dbName: string) => {
+    setSelectedNotionDbs(prev => 
+      prev.includes(dbName) ? prev.filter(db => db !== dbName) : [...prev, dbName]
+    );
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">Connected Services</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Integrate Focus Flow with your favorite tools.</p>
+        
+        <div className="space-y-4">
+          {/* Google Calendar Card */}
+          <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-sky-100 dark:bg-sky-900/40 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-sky-600 dark:text-sky-400" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/>
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-slate-900 dark:text-slate-100">Google Calendar</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {isConnected ? 'Connected as user@gmail.com' : 'Sync your events to Focus Flow'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={toggleConnection}
+                className={[
+                  'px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
+                  isConnected 
+                    ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 dark:hover:bg-rose-900/40' 
+                    : 'bg-violet-600 text-white hover:bg-violet-700'
+                ].join(' ')}
+              >
+                {isConnected ? 'Disconnect' : 'Connect'}
+              </button>
+            </div>
+
+            {isConnected && (
+              <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Select Calendars to Sync</p>
+                <div className="space-y-2">
+                  {mockLists.map(list => {
+                    const isSelected = (preferences.mockGoogleLists || []).includes(list);
+                    return (
+                      <label key={list} className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700/50">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleList(list)}
+                          className="w-4 h-4 rounded text-violet-600 focus:ring-violet-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+                        />
+                        <span className="text-sm text-slate-700 dark:text-slate-200">{list}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Selected calendars will appear as categories in your sidebar.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Notion Integration Card */}
+          <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-slate-700 dark:text-slate-200" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M4.459 4.208c-.742.15-1.05.51-1.05 1.14v13.626c0 .736.324 1.156 1.05 1.29l10.155 1.832c.677.105 1.217-.225 1.217-.99V7.126c0-.661-.406-1.127-1.036-1.232L4.459 4.208zM14.992 20.354l-8.916-1.606v-13.6l8.916 1.62v13.586zm5.55-15.01c.742-.15 1.05-.51 1.05-1.14V-9.42c0-.736-.324-1.156-1.05-1.29l-10.155-1.832c-.677-.105-1.217.225-1.217.99v13.98c0 .661.406 1.127 1.036 1.232l10.336 1.684z" transform="translate(0, 4)"/>
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-slate-900 dark:text-slate-100">Notion</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {isNotionConnected ? 'Status: Connected to Workspace' : 'Sync your tasks with your Notion databases and workspaces'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleConnectNotion}
+                disabled={isConnectingNotion}
+                className={[
+                  'px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2',
+                  isConnectingNotion ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed' :
+                  isNotionConnected 
+                    ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 dark:hover:bg-rose-900/40' 
+                    : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100'
+                ].join(' ')}
+              >
+                {isConnectingNotion ? (
+                  <><RefreshCw size={16} className="animate-spin" /> Connecting...</>
+                ) : isNotionConnected ? (
+                  'Disconnect'
+                ) : (
+                  'Connect'
+                )}
+              </button>
+            </div>
+
+            {isNotionConnected && (
+              <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Select Notion Database</p>
+                <div className="space-y-2">
+                  {mockNotionDbs.map(db => {
+                    const isSelected = selectedNotionDbs.includes(db);
+                    return (
+                      <label key={db} className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700/50">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleNotionDb(db)}
+                          className="w-4 h-4 rounded text-slate-900 dark:text-white focus:ring-slate-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+                        />
+                        <span className="text-sm text-slate-700 dark:text-slate-200">{db}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Databases map your Notion items directly into focus categories.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

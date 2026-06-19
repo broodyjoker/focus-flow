@@ -48,21 +48,22 @@ export function isPast(date: Date): boolean {
  * Human-readable label for a due date.
  * Never returns "Overdue" — past dates are shown with a neutral date string.
  */
-export function formatDueDate(date: Date): string {
-  if (isToday(date)) return 'Today';
-  if (isTomorrow(date)) return 'Tomorrow';
+export function formatDueDate(date: Date | string | number): string {
+  const d = new Date(date);
+  if (isToday(d)) return 'Today';
+  if (isTomorrow(d)) return 'Tomorrow';
 
   const dayDiff = Math.round(
-    (startOfDay(date).getTime() - getToday().getTime()) / (1000 * 60 * 60 * 24),
+    (startOfDay(d).getTime() - getToday().getTime()) / (1000 * 60 * 60 * 24),
   );
 
   // Within the current week: show weekday name
   if (dayDiff > 1 && dayDiff < 7) {
-    return date.toLocaleDateString('en-US', { weekday: 'short' });
+    return d.toLocaleDateString('en-US', { weekday: 'short' });
   }
 
   // Past or far future: short date (e.g. "Jun 3") — neutral, no alarm language
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 /**
@@ -73,8 +74,9 @@ export function formatDueDate(date: Date): string {
  */
 export type DueDateColor = 'today' | 'soon' | 'neutral';
 
-export function getDueDateColor(date: Date): DueDateColor {
-  if (isToday(date)) return 'today';
-  if (isTomorrow(date)) return 'soon';
+export function getDueDateColor(date: Date | string | number): DueDateColor {
+  const d = new Date(date);
+  if (isToday(d)) return 'today';
+  if (isTomorrow(d)) return 'soon';
   return 'neutral';
 }

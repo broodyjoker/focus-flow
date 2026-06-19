@@ -12,7 +12,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sun, Calendar, Sunrise, ArrowRightCircle, Timer } from 'lucide-react';
+import { Sun, Calendar, Sunrise, Timer } from 'lucide-react';
 import type { Task } from '../models';
 import { formatDueDate, getDueDateColor, isToday, getToday, getTomorrow } from '../utils/dates';
 import { useSwipe } from '../utils/useSwipe';
@@ -131,12 +131,12 @@ export function TaskRow({
       }}
       className={[
         'group flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer select-none min-w-0',
-        'border transition-all duration-500 ease-in-out',
+        'border transition-all duration-200 ease-out',
         isCalendarOpen ? 'relative z-[60]' : 'relative z-0',
         isSelected
-          ? 'bg-violet-50 border-violet-200/80 shadow-[0_1px_4px_rgba(139,92,246,0.12)] dark:bg-violet-950/50 dark:border-violet-700/50'
-          : 'border-transparent hover:bg-slate-50 hover:border-slate-100 dark:hover:bg-slate-800/60 dark:hover:border-slate-700/50',
-        isDimmed ? 'opacity-30' : 'opacity-100',
+          ? 'bg-violet-50 border-violet-200/70 shadow-[0_1px_6px_rgba(139,92,246,0.15)] dark:bg-violet-950/40 dark:border-violet-800/50 dark:shadow-[0_1px_8px_rgba(139,92,246,0.08)]'
+          : 'border-transparent hover:bg-slate-50/80 hover:border-slate-100 dark:hover:bg-slate-800/50 dark:hover:border-slate-700/40 active:scale-[0.995]',
+        isDimmed ? 'opacity-25' : 'opacity-100',
       ].join(' ')}
     >
       {/* ── Checkbox (Invisible Hitbox Expansion) ─────────────────────────────── */}
@@ -154,13 +154,13 @@ export function TaskRow({
           className={[
             'w-[18px] h-[18px] rounded-full border-2',
             'flex items-center justify-center',
-            'transition-all duration-300 ease-out',
+            'transition-all duration-200 ease-out',
             'group-focus-visible/checkbox:ring-2 group-focus-visible/checkbox:ring-offset-1 group-focus-visible/checkbox:ring-violet-400',
             task.isCompleted
-              ? 'bg-gradient-to-tr from-emerald-400 to-emerald-500 border-emerald-400 animate-checkbox-pop'
+              ? 'bg-gradient-to-tr from-emerald-400 to-emerald-500 border-emerald-400 shadow-[0_0_0_2px_rgba(52,211,153,0.2)] animate-checkbox-pop'
               : isSelected
-              ? 'border-violet-400 bg-white dark:bg-slate-900 group-hover/checkbox:scale-110'
-              : 'border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900 group-hover:border-slate-400 dark:group-hover:border-slate-500 group-hover/checkbox:scale-110',
+              ? 'border-violet-400 bg-white dark:bg-slate-900 group-hover/checkbox:scale-110 shadow-[0_0_0_2px_rgba(139,92,246,0.12)]'
+              : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 group-hover:border-slate-400 dark:group-hover:border-slate-500 group-hover/checkbox:scale-110',
           ].join(' ')}
         >
           <svg
@@ -201,13 +201,13 @@ export function TaskRow({
           }}
           className={[
             'inline-block max-w-full text-[13px] font-medium leading-snug truncate',
-            'transition-all duration-500 ease-in-out',
-            'hover:underline decoration-dotted underline-offset-2 cursor-pointer',
+            'transition-all duration-150 ease-out',
+            'hover:opacity-80 cursor-pointer',
             task.isCompleted
-              ? 'line-through text-slate-400 dark:text-slate-500'
+              ? 'line-through text-slate-300 dark:text-slate-600'
               : isSelected
-              ? 'text-violet-900 dark:text-violet-200'
-              : 'text-slate-700 dark:text-slate-200',
+              ? 'text-violet-800 dark:text-violet-200'
+              : 'text-slate-800 dark:text-slate-100',
           ].join(' ')}
         >
           {task.title}

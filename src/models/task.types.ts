@@ -63,6 +63,11 @@ export interface Task {
    */
   isRoutine: boolean;
 
+  /**
+   * Recurring schedule interval
+   */
+  recurrence?: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+
   /** Optional target date for deadline-aware views. */
   dueDate?: Date;
 
@@ -74,4 +79,10 @@ export interface Task {
 
   /** Whether the task is explicitly parked in the focus Zone. */
   inZone?: boolean;
+
+  /** Optional ISO string representing the specific time for a reminder. */
+  reminderTime?: string;
+
+  /** Flag to track if the reminder has already been triggered to prevent spam. */
+  reminderTriggered?: boolean;
 }
