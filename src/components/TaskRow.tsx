@@ -12,7 +12,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sun, Calendar, Sunrise, Timer } from 'lucide-react';
+import { Sun, Calendar, Sunrise, Timer, Trash2, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import type { Task } from '../models';
 import { formatDueDate, getDueDateColor, isToday, getToday, getTomorrow } from '../utils/dates';
 import { useSwipe } from '../utils/useSwipe';
@@ -29,7 +29,17 @@ interface TaskRowProps {
   isAtMaxDepth?: boolean;
   onSwipeDeeper?: (id: string) => void;
   onUpdateTask: (id: string, updates: Partial<Task>) => void;
+  onDeleteTask?: (id: string) => void;
   onToggleTimer?: (id: string) => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  draggedTaskId?: string | null;
+  dragOverTaskId?: string | null;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnter?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
 }
 
 // ── Due-date badge ─────────────────────────────────────────────────────────────
@@ -66,11 +76,29 @@ export function TaskRow({
   onOpenDetail,
   onSwipeDeeper,
   onUpdateTask,
+  onDeleteTask,
   onToggleTimer,
+  onMoveUp,
+  onMoveDown,
+  draggedTaskId,
+  dragOverTaskId,
+  onDragStart,
+  onDragEnter,
+  onDragOver,
+  onDragEnd,
+  onDrop,
 }: TaskRowProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [swipeState, setSwipeState] = useState<'closed' | 'open'>('closed');
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Close calendar dropdown when clicking outside
   useEffect(() => {
@@ -85,60 +113,117 @@ export function TaskRow({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isCalendarOpen]);
-  const swipeHandlers = useSwipe(
-    () => {
-      // Swipe Right-To-Left (RTL) -> Dive deeper
-      if (hasChildren && !isAtMaxDepth && onSwipeDeeper) {
-        onSwipeDeeper(task.id);
-      }
-    },
-    undefined // LTR is handled by the Column
-  );
 
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+      exit={{ opacity: 0, scale: 0.95, x: -100 }}
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      id={`task-row-${task.id}`}
-      role="row"
-      aria-selected={isSelected}
-      onClick={() => onClick(task.id)}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onOpenDetail(task.id);
-      }}
+      className={`relative w-full group select-none min-w-0 ${draggedTaskId === task.id ? 'opacity-50' : ''} ${dragOverTaskId === task.id ? 'border-t-2 border-indigo-500 rounded-t-none' : ''}`}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onOpenDetail(task.id);
-      }}
-      onTouchStart={(e) => {
-        if (swipeHandlers.onTouchStart) swipeHandlers.onTouchStart(e);
-        longPressTimerRef.current = setTimeout(() => {
+        try {
           onOpenDetail(task.id);
-        }, 600);
+        } catch (err) {
+          console.error('[TaskRow] onContextMenu → onOpenDetail failed:', err);
+        }
       }}
-      onTouchMove={(e) => {
-        if (swipeHandlers.onTouchMove) swipeHandlers.onTouchMove(e);
-        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      }}
-      onTouchEnd={(e) => {
-        if (swipeHandlers.onTouchEnd) swipeHandlers.onTouchEnd(e);
-        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      }}
-      className={[
-        'group flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer select-none min-w-0',
-        'border transition-all duration-200 ease-out',
-        isCalendarOpen ? 'relative z-[60]' : 'relative z-0',
-        isSelected
-          ? 'bg-violet-50 border-violet-200/70 shadow-[0_1px_6px_rgba(139,92,246,0.15)] dark:bg-violet-950/40 dark:border-violet-800/50 dark:shadow-[0_1px_8px_rgba(139,92,246,0.08)]'
-          : 'border-transparent hover:bg-slate-50/80 hover:border-slate-100 dark:hover:bg-slate-800/50 dark:hover:border-slate-700/40 active:scale-[0.995]',
-        isDimmed ? 'opacity-25' : 'opacity-100',
-      ].join(' ')}
     >
+      {/* Background Action Layer */}
+      {isMobile && (
+        <div 
+          className="absolute inset-y-0 right-0 w-24 bg-red-500 rounded-xl flex items-center justify-end px-4 text-white"
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onDeleteTask) onDeleteTask(task.id);
+            }}
+            className="w-full h-full flex items-center justify-end hover:scale-110 transition-transform focus:outline-none"
+          >
+            <Trash2 size={20} />
+          </button>
+        </div>
+      )}
+
+      <motion.div
+        drag={isMobile ? "x" : false}
+        dragConstraints={{ left: -80, right: 0 }}
+        dragElastic={{ left: 0.2, right: 0.1 }}
+        animate={{ x: swipeState === 'open' ? -80 : 0 }}
+        onDragEnd={(e, info) => {
+          if (info.offset.x < -100) {
+            // Auto delete if swiped far enough
+            if (onDeleteTask) onDeleteTask(task.id);
+          } else if (info.offset.x < -40) {
+            // Snap open
+            setSwipeState('open');
+          } else {
+            // Snap closed
+            setSwipeState('closed');
+          }
+          
+          if (info.offset.x > 60 && hasChildren && !isAtMaxDepth && onSwipeDeeper) {
+            onSwipeDeeper(task.id);
+          }
+        }}
+        id={`task-row-${task.id}`}
+        role="row"
+        aria-selected={isSelected}
+        onClick={() => {
+          if (swipeState === 'open') {
+            setSwipeState('closed');
+          } else {
+            onClick(task.id);
+          }
+        }}
+        onDoubleClick={(e) => {
+          if (swipeState === 'open') return;
+          e.stopPropagation();
+          onOpenDetail(task.id);
+        }}
+        onTouchStart={(e) => {
+          longPressTimerRef.current = setTimeout(() => {
+            onOpenDetail(task.id);
+          }, 600);
+        }}
+        onTouchMove={() => {
+          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        }}
+        onTouchEnd={() => {
+          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        }}
+        className={[
+          'group flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer bg-white dark:bg-[#0b1120]',
+          'border transition-all duration-200 ease-out',
+          isCalendarOpen ? 'relative z-[60]' : 'relative z-10',
+          isSelected
+            ? 'bg-violet-50 border-violet-200/70 shadow-[0_1px_6px_rgba(139,92,246,0.15)] dark:bg-violet-950/40 dark:border-violet-800/50 dark:shadow-[0_1px_8px_rgba(139,92,246,0.08)]'
+            : 'border-transparent hover:bg-slate-50/80 hover:border-slate-100 dark:hover:bg-slate-800/50 dark:hover:border-slate-700/40 active:scale-[0.995]',
+          isDimmed ? 'opacity-25' : 'opacity-100',
+        ].join(' ')}
+      >
+      
+      {/* Drag handle (Desktop only) — draggable is scoped to THIS element only to prevent
+          conflicting with onContextMenu on the outer wrapper (which caused WSODs). */}
+      {!isMobile && (
+        <div
+          draggable
+          onDragStart={onDragStart}
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+          onDrop={onDrop}
+          onContextMenu={(e) => e.stopPropagation()}
+          className="flex flex-shrink-0 -ml-1 text-slate-300 dark:text-slate-600 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+        >
+          <GripVertical size={14} />
+        </div>
+      )}
+
       {/* ── Checkbox (Invisible Hitbox Expansion) ─────────────────────────────── */}
       <button
         id={`task-row-toggle-${task.id}`}
@@ -246,6 +331,21 @@ export function TaskRow({
         className={`task-actions relative ${isCalendarOpen ? 'z-[60]' : 'z-10'} flex items-center gap-1 flex-shrink-0`}
         style={{ pointerEvents: 'auto' }}
       >
+        {/* Desktop Delete Action */}
+        {!isMobile && onDeleteTask && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteTask(task.id);
+            }}
+            className="p-1.5 text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition-colors"
+            title="Delete task"
+            aria-label="Delete task"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
+
         {/* Pomodoro Timer */}
         <button
           type="button"
@@ -326,6 +426,32 @@ export function TaskRow({
           )}
         </div>
       </div>
+      
+      {/* Mobile Move Controls */}
+      <div className="md:hidden flex flex-col -space-y-1 items-center ml-1" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onMoveUp?.();
+          }}
+          disabled={!onMoveUp}
+          className="p-1 text-slate-300 dark:text-slate-600 hover:text-slate-500 disabled:opacity-30 transition-colors"
+          aria-label="Move Up"
+        >
+          <ChevronUp size={16} />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onMoveDown?.();
+          }}
+          disabled={!onMoveDown}
+          className="p-1 text-slate-300 dark:text-slate-600 hover:text-slate-500 disabled:opacity-30 transition-colors"
+          aria-label="Move Down"
+        >
+          <ChevronDown size={16} />
+        </button>
+      </div>
 
       {/* ── Right chevron — drillability / navigation indicator ───────────────── */}
       <svg
@@ -351,6 +477,7 @@ export function TaskRow({
           strokeLinejoin="round"
         />
       </svg>
+      </motion.div>
     </motion.div>
   );
 }

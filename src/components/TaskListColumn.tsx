@@ -14,6 +14,7 @@
 //   • Displays filtered aggregations. Drill-down is disabled. Clicking opens details.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useState, useRef } from 'react';
 import type { Task, LifeBucket } from '../models';
 import { getBucketById } from '../models';
 import { BrainDumpInput } from './BrainDumpInput';
@@ -41,7 +42,10 @@ interface TaskListColumnProps {
   onOpenSidebar: () => void;
   onOpenDetail: (taskId: string) => void;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => void;
+  onDeleteTask: (taskId: string) => void;
   onToggleTimer?: (taskId: string) => void;
+  onReorderTasks?: (draggedId: string, dropTargetId: string) => void;
+  onSwapTasks?: (id1: string, id2: string) => void;
   isActiveMobileView?: boolean;
 }
 
@@ -61,9 +65,16 @@ export function TaskListColumn({
   onOpenSidebar,
   onOpenDetail,
   onUpdateTask,
+  onDeleteTask,
   onToggleTimer,
+  onReorderTasks,
+  onSwapTasks,
   isActiveMobileView = false,
 }: TaskListColumnProps) {
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+  const draggedTaskRef = useRef<string | null>(null);
+
   const bucket = getBucketById(activeBucketId);
   const isSmartView = !!activeSmartView;
 
@@ -255,8 +266,36 @@ export function TaskListColumn({
                             onClick={isSmartView ? () => onOpenDetail(task.id) : col2AtMaxDepth ? onToggle : onSelectTask}
                             onOpenDetail={onOpenDetail}
                             onUpdateTask={onUpdateTask}
+                            onDeleteTask={onDeleteTask}
                             onToggleTimer={onToggleTimer}
                             onSwipeDeeper={isSmartView || col2AtMaxDepth ? undefined : onSelectTask}
+                            onMoveUp={index > 0 ? () => onSwapTasks?.(task.id, tasksInBucket[index - 1].id) : undefined}
+                            onMoveDown={index < tasksInBucket.length - 1 ? () => onSwapTasks?.(task.id, tasksInBucket[index + 1].id) : undefined}
+                            draggedTaskId={draggedTaskId}
+                            dragOverTaskId={dragOverTaskId}
+                            onDragStart={() => {
+                              draggedTaskRef.current = task.id;
+                              setDraggedTaskId(task.id);
+                            }}
+                            onDragEnter={(e) => {
+                              e.preventDefault();
+                              setDragOverTaskId(task.id);
+                            }}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDragEnd={() => {
+                              setDraggedTaskId(null);
+                              setDragOverTaskId(null);
+                              draggedTaskRef.current = null;
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (draggedTaskRef.current && draggedTaskRef.current !== task.id) {
+                                onReorderTasks?.(draggedTaskRef.current, task.id);
+                              }
+                              setDraggedTaskId(null);
+                              setDragOverTaskId(null);
+                              draggedTaskRef.current = null;
+                            }}
                           />
                         ))}
                       </div>
@@ -266,7 +305,7 @@ export function TaskListColumn({
               ) : (
                 visibleTasks
                   .filter((task) => !task.isCompleted)
-                  .map((task) => (
+                  .map((task, index, arr) => (
                     <TaskRow
                       key={task.id}
                       task={task}
@@ -278,8 +317,36 @@ export function TaskListColumn({
                       onClick={isSmartView ? () => onOpenDetail(task.id) : col2AtMaxDepth ? onToggle : onSelectTask}
                       onOpenDetail={onOpenDetail}
                       onUpdateTask={onUpdateTask}
+                      onDeleteTask={onDeleteTask}
                       onToggleTimer={onToggleTimer}
                       onSwipeDeeper={isSmartView || col2AtMaxDepth ? undefined : onSelectTask}
+                      onMoveUp={index > 0 ? () => onSwapTasks?.(task.id, arr[index - 1].id) : undefined}
+                      onMoveDown={index < arr.length - 1 ? () => onSwapTasks?.(task.id, arr[index + 1].id) : undefined}
+                      draggedTaskId={draggedTaskId}
+                      dragOverTaskId={dragOverTaskId}
+                      onDragStart={() => {
+                        draggedTaskRef.current = task.id;
+                        setDraggedTaskId(task.id);
+                      }}
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        setDragOverTaskId(task.id);
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDragEnd={() => {
+                        setDraggedTaskId(null);
+                        setDragOverTaskId(null);
+                        draggedTaskRef.current = null;
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedTaskRef.current && draggedTaskRef.current !== task.id) {
+                          onReorderTasks?.(draggedTaskRef.current, task.id);
+                        }
+                        setDraggedTaskId(null);
+                        setDragOverTaskId(null);
+                        draggedTaskRef.current = null;
+                      }}
                     />
                   ))
               )}

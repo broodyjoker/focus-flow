@@ -59,9 +59,13 @@ export function SettingsModal({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md">
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md"
+          onClick={onClose}
+        >
           <motion.div 
             {...swipeHandlers}
+            onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
@@ -141,7 +145,7 @@ export function SettingsModal({
           {/* Close button */}
           <button
             onClick={onClose}
-            className="absolute top-6 right-6 p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-all duration-200 active:scale-90"
+            className="hidden md:block absolute top-6 right-6 p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-all duration-200 active:scale-90"
           >
             <X size={20} />
           </button>
@@ -334,6 +338,7 @@ function CategoriesTab({ buckets, setBuckets, tasks }: { buckets: LifeBucket[], 
                     type="text" 
                     value={editEmoji} 
                     onChange={e => setEditEmoji(e.target.value)} 
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveEdit(b.id); }}
                     className="w-12 text-center bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg"
                     maxLength={2}
                   />
@@ -341,6 +346,7 @@ function CategoriesTab({ buckets, setBuckets, tasks }: { buckets: LifeBucket[], 
                     type="text" 
                     value={editName} 
                     onChange={e => setEditName(e.target.value)} 
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveEdit(b.id); }}
                     className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-sm text-slate-900 dark:text-white"
                     autoFocus
                   />
@@ -750,6 +756,7 @@ function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPrefe
   const [isSupabaseConnected, setIsSupabaseConnected] = useState(() => localStorage.getItem('isSupabaseConnected') === 'true');
   const [isConnectingDrive, setIsConnectingDrive] = useState(false);
   const [isConnectingSupabase, setIsConnectingSupabase] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('isDriveConnected', String(isDriveConnected));
@@ -786,16 +793,20 @@ function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPrefe
   };
 
   const handleExport = () => {
-    const backup = { tasks, buckets, preferences, version: 1 };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `taskzone-backup-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setIsExporting(true);
+    setTimeout(() => {
+      const backup = { tasks, buckets, preferences, version: 1 };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `taskzone-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setIsExporting(false);
+    }, 1000);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -870,9 +881,21 @@ function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPrefe
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 px-4">Download your entire IndexedDB state (tasks, attachments, buckets, settings) into a single portable JSON file.</p>
             <button 
               onClick={handleExport}
-              className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 px-4 py-2.5 rounded-lg font-semibold transition-colors"
+              disabled={isExporting}
+              className={`w-full px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 ${
+                isExporting
+                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 cursor-not-allowed'
+                  : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100'
+              }`}
             >
-              Download Backup
+              {isExporting ? (
+                <>
+                  <RefreshCw size={18} className="animate-spin" />
+                  Downloading...
+                </>
+              ) : (
+                'Download Backup'
+              )}
             </button>
           </div>
 

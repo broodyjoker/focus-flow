@@ -10,6 +10,7 @@ interface CalendarViewProps {
   preferences: Preferences;
   onAddTask: (title: string, dueDate: Date) => void;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => void;
+  onDeleteTask: (taskId: string) => void;
   onSelectTask: (taskId: string) => void;
   onToggleTimer: (taskId?: string) => void;
   onClose?: () => void;
@@ -20,6 +21,7 @@ export function CalendarView({
   preferences,
   onAddTask,
   onUpdateTask,
+  onDeleteTask,
   onSelectTask,
   onToggleTimer,
   onClose,
@@ -186,9 +188,10 @@ export function CalendarView({
                 isChild={false}
                 hasChildren={false}
                 isSelected={false}
-                onToggle={() => onUpdateTask(task.id, { isCompleted: !task.isCompleted })}
-                onSelect={() => onSelectTask(task.id)}
-                onToggleTimer={() => onToggleTimer(task.id)}
+                onOpenDetail={onSelectTask}
+                onUpdateTask={onUpdateTask}
+                onDeleteTask={onDeleteTask}
+                onToggleTimer={onToggleTimer}
               />
             </div>
           ))

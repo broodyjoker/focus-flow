@@ -19,7 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { X, CalendarCheck, CalendarPlus, CalendarX, Paperclip, Zap, Battery, Trash2, FileText, Bell, Copy, FolderInput } from 'lucide-react';
+import { X, CalendarCheck, CalendarPlus, CalendarX, Paperclip, Zap, Battery, Trash2, FileText, Bell, Copy, FolderInput, Plus } from 'lucide-react';
 import type { Task, Attachment, Preferences, LifeBucket } from '../models';
 import { formatDueDate, getToday, getTomorrow, isToday, isTomorrow } from '../utils/dates';
 import { PRIORITY_META, type PriorityValue } from '../utils/priority';
@@ -28,10 +28,12 @@ import { requestNotificationPermission } from '../utils/notifications';
 
 interface TaskDetailDrawerProps {
   task: Task | null;
+  tasks?: Task[];
   onClose: () => void;
   onUpdate: (taskId: string, updates: Partial<Task>) => void;
   onDelete: (taskId: string) => void;
   onDuplicate: (taskId: string) => void;
+  onAdd?: (title: string, parentId: string | null) => void;
   buckets: LifeBucket[];
   preferences: Preferences;
 }
@@ -98,17 +100,16 @@ function DateChip({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={[
-        'flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold',
-        'border transition-all duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400',
+        'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold transition-all duration-200',
         active
-          ? 'bg-violet-100 border-violet-300 text-violet-700 dark:bg-violet-900/50 dark:border-violet-600 dark:text-violet-300'
-          : 'bg-white border-slate-200 text-slate-500 hover:border-violet-200 hover:text-violet-600 hover:bg-violet-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:border-violet-600 dark:hover:text-violet-300 dark:hover:bg-violet-900/30',
+          ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
+          : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700',
       ].join(' ')}
     >
-      <Icon size={13} />
+      <Icon size={14} />
       {label}
     </button>
   );
@@ -118,10 +119,12 @@ function DateChip({
 
 export function TaskDetailDrawer({
   task,
+  tasks,
   onClose,
   onUpdate,
   onDelete,
   onDuplicate,
+  onAdd,
   buckets,
   preferences,
 }: TaskDetailDrawerProps) {
@@ -744,6 +747,39 @@ export function TaskDetailDrawer({
                 ].join(' ')}
                 spellCheck={false}
               />
+            </section>
+          )}
+
+          {/* ── Subtasks ──────────────────────────────────────────────────────── */}
+          {tasks && (
+            <section aria-labelledby="section-subtasks" className="pt-2">
+              <SectionLabel>
+                <span id="section-subtasks">📋 Subtasks</span>
+              </SectionLabel>
+              <div className="mb-2">
+                {tasks.filter(t => t.parentId === task.id).map(child => (
+                  <RecursiveSubtaskNode
+                    key={child.id}
+                    taskId={child.id}
+                    tasks={tasks}
+                    depth={0}
+                    onUpdate={onUpdate}
+                    onDelete={onDelete}
+                    onAdd={onAdd}
+                  />
+                ))}
+              </div>
+              {onAdd && (
+                <button
+                  onClick={() => {
+                    const title = window.prompt('New subtask:');
+                    if (title?.trim()) onAdd(title.trim(), task.id);
+                  }}
+                  className="flex items-center gap-2 text-[12px] font-semibold text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300"
+                >
+                  <Plus size={14} /> Add Subtask
+                </button>
+              )}
             </section>
           )}
 

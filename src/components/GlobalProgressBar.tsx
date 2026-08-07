@@ -5,10 +5,13 @@ export function GlobalProgressBar({
   showGlobalProgress: boolean;
   globalProgress: number;
 }) {
-  if (!showGlobalProgress) return null;
-
   return (
-    <div className="fixed top-0 left-0 right-0 w-full h-1.5 z-[99999] overflow-hidden pointer-events-none">
+    <div 
+      className={[
+        "fixed top-0 left-0 right-0 w-full h-1.5 z-[99999] overflow-hidden pointer-events-none transition-opacity duration-700",
+        showGlobalProgress ? "opacity-100" : "opacity-0"
+      ].join(' ')}
+    >
       <div
         className={[
           'h-full',

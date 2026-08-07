@@ -88,6 +88,19 @@ function App() {
     });
   }, []);
 
+  const swapBuckets = useCallback((id1: string, id2: string) => {
+    setBuckets((prev) => {
+      const idx1 = prev.findIndex((b) => b.id === id1);
+      const idx2 = prev.findIndex((b) => b.id === id2);
+      if (idx1 === -1 || idx2 === -1) return prev;
+      const result = [...prev];
+      const temp = result[idx1];
+      result[idx1] = result[idx2];
+      result[idx2] = temp;
+      return result;
+    });
+  }, []);
+
   // Timer countdown effect
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -429,6 +442,39 @@ function App() {
     );
   }, []);
 
+  const reorderTasks = useCallback((draggedId: string, dropTargetId: string) => {
+    setTasks((prev) => {
+      const result = [...prev];
+      const draggedIndex = result.findIndex((t) => t.id === draggedId);
+      if (draggedIndex === -1) return prev;
+      const [removed] = result.splice(draggedIndex, 1);
+      
+      const targetIndex = result.findIndex((t) => t.id === dropTargetId);
+      if (targetIndex === -1) return prev; // should not happen
+
+      const originalTargetIndex = prev.findIndex(t => t.id === dropTargetId);
+      if (draggedIndex < originalTargetIndex) {
+          result.splice(targetIndex + 1, 0, removed); // insert after if dragged down
+      } else {
+          result.splice(targetIndex, 0, removed); // insert before if dragged up
+      }
+      return result;
+    });
+  }, []);
+
+  const swapTasks = useCallback((id1: string, id2: string) => {
+    setTasks((prev) => {
+      const idx1 = prev.findIndex((t) => t.id === id1);
+      const idx2 = prev.findIndex((t) => t.id === id2);
+      if (idx1 === -1 || idx2 === -1) return prev;
+      const result = [...prev];
+      const temp = result[idx1];
+      result[idx1] = result[idx2];
+      result[idx2] = temp;
+      return result;
+    });
+  }, []);
+
   /** Open the detail drawer for a given task. */
   const openDetail = useCallback((taskId: string) => {
     setOpenTaskId(taskId);
@@ -619,6 +665,7 @@ function App() {
         toggleDark={toggleDark}
         onToggleZoneMode={toggleZoneMode}
         onReorderBuckets={reorderBuckets}
+        onSwapBuckets={swapBuckets}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onToggleCalendar={() => { setActiveMainView('calendar'); setActiveSmartView(null); }}
       />
@@ -640,6 +687,7 @@ function App() {
             setTasks(prev => [...prev, newTask]);
           }}
           onUpdateTask={updateTask}
+          onDeleteTask={deleteTask}
           onSelectTask={openDetail}
           onToggleTimer={toggleTimer}
           onClose={() => setActiveMainView('tasks')}
@@ -664,7 +712,10 @@ function App() {
             onOpenSidebar={() => setIsSidebarOpen(true)}
             onOpenDetail={openDetail}
             onUpdateTask={updateTask}
+            onDeleteTask={deleteTask}
             onToggleTimer={toggleTimer}
+            onReorderTasks={reorderTasks}
+            onSwapTasks={swapTasks}
           />
 
           {/* Column 3 — children of the selected task */}
@@ -677,26 +728,33 @@ function App() {
             slideClass={slideClass}
             onAdd={addTaskAtLevel}
             onToggle={toggleTask}
-            onSelectTask={selectTask}
-            onBack={navigateBack}
-            onOpenSidebar={() => setIsSidebarOpen(true)}
+            onShiftInto={shiftInto}
+            onMobileBack={mobileBackToCol2}
             onOpenDetail={openDetail}
             onUpdateTask={updateTask}
+            onDeleteTask={deleteTask}
             onToggleTimer={toggleTimer}
+            onReorderTasks={reorderTasks}
+            onSwapTasks={swapTasks}
           />
         </>
       )}
 
       {/* Task Detail Drawer — portaled over Col 3 */}
-      <TaskDetailDrawer
-        task={openTask}
-        onClose={closeDetail}
-        onUpdate={updateTask}
-        onDelete={deleteTask}
-        onDuplicate={duplicateTask}
-        buckets={buckets}
-        preferences={preferences}
-      />
+      {openTask && (
+        <TaskDetailDrawer
+          task={openTask}
+          tasks={tasks}
+          isVisible={!!openTask}
+          onClose={closeDetail}
+          onUpdate={updateTask}
+          onDelete={deleteTask}
+          onDuplicate={duplicateTask}
+          onAdd={addTaskAtLevel}
+          buckets={buckets}
+          preferences={preferences}
+        />
+      )}
 
       <SettingsModal
         isOpen={isSettingsOpen}

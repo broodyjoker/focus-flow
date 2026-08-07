@@ -6,7 +6,7 @@
 // Mobile: Overlay drawer with Framer Motion (hidden by default)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { LifeBucket } from '../models';
 import { useSwipe } from '../utils/useSwipe';
@@ -27,6 +27,7 @@ interface SidebarProps {
   toggleDark?: () => void;
   onToggleZoneMode?: () => void;
   onReorderBuckets: (startIndex: number, endIndex: number) => void;
+  onSwapBuckets?: (id1: string, id2: string) => void;
   onOpenSettings?: () => void;
   onToggleCalendar?: () => void;
 }
@@ -44,12 +45,20 @@ export function Sidebar({
   toggleDark = () => {},
   onToggleZoneMode = () => {},
   onReorderBuckets,
+  onSwapBuckets,
   onOpenSettings = () => {},
   onToggleCalendar = () => {},
 }: SidebarProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const draggedItemRef = useRef<number | null>(null);
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const swipeHandlers = useSwipe(onClose, undefined);
 
@@ -176,7 +185,7 @@ export function Sidebar({
           {buckets.map((bucket, index) => (
             <div
               key={bucket.id}
-              draggable
+              draggable={!isMobile}
               onDragStart={() => {
                 draggedItemRef.current = index;
                 setDraggedIndex(index);
@@ -216,6 +225,8 @@ export function Sidebar({
                   onSelectBucket(bucket.id);
                   onClose();
                 }}
+                onMoveUp={index > 0 ? () => onSwapBuckets?.(bucket.id, buckets[index - 1].id) : undefined}
+                onMoveDown={index < buckets.length - 1 ? () => onSwapBuckets?.(bucket.id, buckets[index + 1].id) : undefined}
               />
             </div>
           ))}
