@@ -8,7 +8,11 @@ interface SwipeHandlers {
 export function useSwipe(
   onSwipeLeft?: () => void,
   onSwipeRight?: () => void,
-  threshold: number = 40
+  threshold: number = 40,
+  /** If true, right-swipe only fires when the touch started within edgeZone px of the left edge.
+   *  This prevents task-row horizontal swipes from triggering page-level back navigation. */
+  edgeOnly: boolean = false,
+  edgeZone: number = 40,
 ): SwipeHandlers {
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -23,17 +27,20 @@ export function useSwipe(
     if (!startPos) return;
     const endX = e.changedTouches[0].clientX;
     const endY = e.changedTouches[0].clientY;
-    
+
     const deltaX = startPos.x - endX;
     const deltaY = Math.abs(startPos.y - endY);
 
     // Only trigger if horizontal movement is greater than vertical
-    // This prevents triggering swipe when the user is simply scrolling down the list
     if (Math.abs(deltaX) > threshold && Math.abs(deltaX) > deltaY) {
       if (deltaX > 0 && onSwipeLeft) {
-        onSwipeLeft(); // Swipe Right-to-Left
+        onSwipeLeft();
       } else if (deltaX < 0 && onSwipeRight) {
-        onSwipeRight(); // Swipe Left-to-Right
+        // Edge guard: only fire the right-swipe (back) callback if the gesture
+        // started near the left edge of the screen — never from the middle.
+        if (!edgeOnly || startPos.x <= edgeZone) {
+          onSwipeRight();
+        }
       }
     }
     setStartPos(null);

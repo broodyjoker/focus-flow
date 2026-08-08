@@ -82,6 +82,8 @@ export function TaskListColumn({
   const col2Depth = activeParentId ? getTaskDepth(activeParentId, tasks) + 1 : 1;
   const col2AtMaxDepth = isSmartView || col2Depth >= MAX_DEPTH;
   const canAddToCol2 = !isSmartView && col2Depth <= MAX_DEPTH;
+  // Dimming sibling tasks on mobile causes bleed-through bugs — disable it entirely there.
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   // ── Visibility & Filtering ───────────────────────────────────────────────────
   let visibleTasks: Task[];
@@ -135,7 +137,8 @@ export function TaskListColumn({
       ? 'All done!'
       : `${incompleteCount} remaining`;
 
-  // LTR Swipe to go back
+  // LTR Swipe to go back — only fires when the gesture starts within 40px of the left edge,
+  // so task-row swipes from the middle of the screen never accidentally trigger navigation.
   const swipeHandlers = useSwipe(undefined, () => {
     if (activeParentId && !isSmartView) onBack();
     else onOpenSidebar();

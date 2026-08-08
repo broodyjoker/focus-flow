@@ -15,7 +15,7 @@ import { t } from '../i18n';
 import { Sun, Moon, Zap, Settings, X, Calendar, Star, LayoutList, CalendarDays } from 'lucide-react';
 
 interface SidebarProps {
-  isOpen: boolean;
+  isActiveMobileView: boolean;
   onClose: () => void;
   buckets: LifeBucket[];
   activeBucketId?: string;
@@ -33,7 +33,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-  isOpen,
+  isActiveMobileView,
   onClose,
   buckets,
   activeBucketId,
@@ -87,14 +87,6 @@ export function Sidebar({
               </h1>
             </div>
           </div>
-          
-          {/* Close button - Only visible on Mobile Drawer */}
-          <button
-            onClick={onClose}
-            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-300 transition-colors"
-          >
-            <X size={18} />
-          </button>
         </div>
 
         {/* Global Action Buttons */}
@@ -242,38 +234,15 @@ export function Sidebar({
         {sidebarContent}
       </aside>
 
-      {/* ── Mobile Overlay Drawer ──────────────────────────────────────────── */}
-      <div className="md:hidden">
-        <AnimatePresence>
-          {isOpen && (
-            <>
-              {/* Backdrop */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                onClick={onClose}
-                className="fixed inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm z-[100]"
-              />
-              
-              {/* Drawer */}
-              <motion.aside
-                {...swipeHandlers}
-                initial={{ x: '-100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '-100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                id="sidebar-mobile"
-                aria-label="Sidebar navigation"
-                className="fixed top-0 left-0 bottom-0 z-[101] flex flex-col w-72 bg-white dark:bg-slate-900 border-r border-slate-100/80 dark:border-slate-800/50 shadow-[4px_0_40px_-4px_rgba(0,0,0,0.25)] dark:shadow-[4px_0_48px_-4px_rgba(0,0,0,0.7)]"
-              >
-                {sidebarContent}
-              </motion.aside>
-            </>
-          )}
-        </AnimatePresence>
-      </div>
+      {/* ── Mobile Static Sidebar (Home) ──────────────────────────────────── */}
+      <aside
+        className={[
+          'md:hidden flex-col w-full h-full bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800',
+          isActiveMobileView ? 'flex' : 'hidden'
+        ].join(' ')}
+      >
+        {sidebarContent}
+      </aside>
     </>
   );
 }

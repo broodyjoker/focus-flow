@@ -65,8 +65,7 @@ function App() {
   const [slideDirection, setSlideDirection] = useState<'forward' | 'back'>('forward');
 
   // ── Mobile layout & Drawer state ───────────────────────────────────────────
-  const [mobileView, setMobileView] = useState<'col2' | 'col3'>('col2');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true);
+  const [mobileView, setMobileView] = useState<'sidebar' | 'col2' | 'col3'>('sidebar');
 
   // ── Pomodoro & Zone Mode state ─────────────────────────────────────────────
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
@@ -194,6 +193,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+
   // ── Global Progress State ──────────────────────────────────────────────────
   const [globalProgress, setGlobalProgress] = useState(0);
   const [showGlobalProgress, setShowGlobalProgress] = useState(false);
@@ -279,7 +279,6 @@ function App() {
     setSelectedTaskId(null);
     setMobileView('col2');
     setSlideDirection('back');
-    setIsSidebarOpen(false);
   }, []);
 
   const selectSmartView = useCallback((view: 'all' | 'today' | 'tomorrow' | 'important') => {
@@ -289,7 +288,6 @@ function App() {
     setSelectedTaskId(null);
     setMobileView('col2');
     setSlideDirection('back');
-    setIsSidebarOpen(false);
   }, []);
 
   /** Clicking a task in column 2 either selects it (opening column 3) or unselects it. */
@@ -327,12 +325,7 @@ function App() {
     [selectedTaskId, tasks],
   );
 
-  /**
-   * Back button in Column 2.
-   * Go up one level:
-   *   new selectedTaskId ← old activeParentId  (so it stays highlighted in parent list)
-   *   new activeParentId ← grandparent
-   */
+  /** Navigating "back" one column left. */
   const navigateBack = useCallback(() => {
     if (!activeParentId) return;
     const activeParentTask = tasks.find((t) => t.id === activeParentId);
@@ -651,10 +644,10 @@ function App() {
         globalProgress={globalProgress} 
       />
 
-      {/* Sidebar Drawer */}
+      {/* Sidebar (Mobile Home or Desktop Left Column) */}
       <Sidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
+        isActiveMobileView={mobileView === 'sidebar'}
+        onClose={() => setMobileView('col2')}
         buckets={buckets}
         activeBucketId={activeBucketId}
         activeSmartView={activeSmartView}
@@ -709,7 +702,7 @@ function App() {
             onToggle={toggleTask}
             onSelectTask={selectTask}
             onBack={navigateBack}
-            onOpenSidebar={() => setIsSidebarOpen(true)}
+            onOpenSidebar={() => setMobileView('sidebar')}
             onOpenDetail={openDetail}
             onUpdateTask={updateTask}
             onDeleteTask={deleteTask}

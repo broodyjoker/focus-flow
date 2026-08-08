@@ -89,7 +89,7 @@ export function TaskRow({
   onDrop,
 }: TaskRowProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-  const [swipeState, setSwipeState] = useState<'closed' | 'open'>('closed');
+  const [isSwiped, setIsSwiped] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -126,23 +126,23 @@ export function TaskRow({
         e.preventDefault();
         e.stopPropagation();
         try {
+          setIsSwiped(false);
           onOpenDetail(task.id);
         } catch (err) {
           console.error('[TaskRow] onContextMenu → onOpenDetail failed:', err);
         }
       }}
     >
-      {/* Background Action Layer */}
-      {isMobile && (
-        <div 
-          className="absolute inset-y-0 right-0 w-24 bg-red-500 rounded-xl flex items-center justify-end px-4 text-white"
-        >
+      {/* Trash layer — only rendered when this specific row is swiped open */}
+      {isMobile && isSwiped && (
+        <div className="absolute inset-y-0 right-0 w-20 bg-red-500 rounded-xl flex items-center justify-center">
           <button
             onClick={(e) => {
               e.stopPropagation();
               if (onDeleteTask) onDeleteTask(task.id);
             }}
-            className="w-full h-full flex items-center justify-end hover:scale-110 transition-transform focus:outline-none"
+            aria-label="Delete task"
+            className="flex items-center justify-center w-full h-full text-white focus:outline-none"
           >
             <Trash2 size={20} />
           </button>
@@ -152,41 +152,36 @@ export function TaskRow({
       <motion.div
         drag={isMobile ? "x" : false}
         dragConstraints={{ left: -80, right: 0 }}
-        dragElastic={{ left: 0.2, right: 0.1 }}
-        animate={{ x: swipeState === 'open' ? -80 : 0 }}
-        onDragEnd={(e, info) => {
-          if (info.offset.x < -100) {
-            // Auto delete if swiped far enough
-            if (onDeleteTask) onDeleteTask(task.id);
-          } else if (info.offset.x < -40) {
-            // Snap open
-            setSwipeState('open');
+        dragElastic={{ left: 0.15, right: 0 }}
+        animate={{ x: isSwiped ? -80 : 0 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+        onDragEnd={(_e, info) => {
+          // Only respond to left-swipes (right-to-left = negative offset)
+          if (info.offset.x < -40) {
+            setIsSwiped(true);
           } else {
-            // Snap closed
-            setSwipeState('closed');
-          }
-          
-          if (info.offset.x > 60 && hasChildren && !isAtMaxDepth && onSwipeDeeper) {
-            onSwipeDeeper(task.id);
+            setIsSwiped(false);
           }
         }}
         id={`task-row-${task.id}`}
         role="row"
         aria-selected={isSelected}
-        onClick={() => {
-          if (swipeState === 'open') {
-            setSwipeState('closed');
-          } else {
-            onClick(task.id);
+        onClick={(e) => {
+          if (isSwiped) {
+            e.stopPropagation();
+            setIsSwiped(false);
+            return;
           }
+          onClick(task.id);
         }}
         onDoubleClick={(e) => {
-          if (swipeState === 'open') return;
+          if (isSwiped) { setIsSwiped(false); return; }
           e.stopPropagation();
           onOpenDetail(task.id);
         }}
-        onTouchStart={(e) => {
+        onTouchStart={() => {
           longPressTimerRef.current = setTimeout(() => {
+            setIsSwiped(false);
             onOpenDetail(task.id);
           }, 600);
         }}
@@ -203,7 +198,13 @@ export function TaskRow({
           isSelected
             ? 'bg-violet-50 border-violet-200/70 shadow-[0_1px_6px_rgba(139,92,246,0.15)] dark:bg-violet-950/40 dark:border-violet-800/50 dark:shadow-[0_1px_8px_rgba(139,92,246,0.08)]'
             : 'border-transparent hover:bg-slate-50/80 hover:border-slate-100 dark:hover:bg-slate-800/50 dark:hover:border-slate-700/40 active:scale-[0.995]',
-          isDimmed ? 'opacity-25' : 'opacity-100',
+          // Mobile: dim ONLY if swiped. Desktop (md+): dim if parent sets isDimmed.
+          // We use Tailwind md: modifiers so resizing or inaccurate JS isMobile checks don't cause UI bugs.
+          isSwiped 
+            ? 'opacity-50 md:opacity-100' // On mobile, swiping dims the task. On desktop, swiping doesn't dim it.
+            : isDimmed 
+              ? 'opacity-100 md:opacity-25' // On mobile, ignore parent dimming. On desktop, apply it.
+              : 'opacity-100',
         ].join(' ')}
       >
       
