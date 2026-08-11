@@ -164,47 +164,15 @@ export function SettingsModal({
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden relative bg-white dark:bg-slate-900">
-          {/* Close button — desktop only */}
+          {/* Close button — visible on all sizes now that mobile header is removed */}
           <button
             onClick={onClose}
-            className="hidden md:block absolute top-6 right-6 p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-all duration-200 active:scale-90"
+            className="absolute top-4 right-4 md:top-6 md:right-6 p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-all duration-200 active:scale-90 z-20"
           >
             <X size={20} />
           </button>
 
-          {/* Mobile section title — replaces the text labels stripped from the icon tabs */}
-          {({
-            general: 'General',
-            categories: 'Categories',
-            storage: 'Storage & Files',
-            focus: 'Pomodoro & Focus',
-            audio: 'Notifications',
-            backup: 'Backup & Restore',
-            connected: 'Connected Services',
-          } as Record<TabType, string>)[activeTab] && (
-            <div className="md:hidden flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-                {({
-                  general: 'General',
-                  categories: 'Categories',
-                  storage: 'Storage & Files',
-                  focus: 'Pomodoro & Focus',
-                  audio: 'Notifications',
-                  backup: 'Backup & Restore',
-                  connected: 'Connected Services',
-                } as Record<TabType, string>)[activeTab]}
-              </h2>
-              <button
-                onClick={onClose}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all active:scale-90"
-                aria-label="Close settings"
-              >
-                <X size={18} />
-              </button>
-            </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 md:p-8">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 pt-12 md:p-8 md:pt-8">
             {activeTab === 'general' && <GeneralTab preferences={preferences} setPreferences={setPreferences} />}
             {activeTab === 'categories' && <CategoriesTab buckets={buckets} setBuckets={setBuckets} tasks={tasks} />}
             {activeTab === 'storage' && <StorageTab tasks={tasks} setTasks={setTasks} />}

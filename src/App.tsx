@@ -36,7 +36,8 @@ import type { Task, LifeBucket, Preferences } from './models';
 import { getBucketById, LIFE_BUCKETS, DEFAULT_PREFERENCES } from './models';
 import { getTaskDepth, MAX_DEPTH, getRootAncestor, getAllDescendants } from './utils/depth';
 import { getToday, startOfDay } from './utils/dates';
-import { loadData, saveData } from './utils/db';
+import { loadData, saveData, loadTasks, loadBuckets } from './utils/db';
+import { sanitize } from './utils/sanitize';
 import { playSound } from './utils/audio';
 import { sendNotification } from './utils/notifications';
 import { useReminders } from './utils/useReminders';
@@ -203,14 +204,14 @@ function App() {
   useEffect(() => {
     async function init() {
       try {
-        const loadedTasks = await loadData<Task[]>('tasks');
-        const loadedBuckets = await loadData<LifeBucket[]>('buckets');
+        const loadedTasks       = await loadTasks();
+        const loadedBuckets     = await loadBuckets();
         const loadedPreferences = await loadData<Preferences>('preferences');
 
-        if (loadedTasks && loadedTasks.length > 0) {
+        if (loadedTasks.length > 0) {
           setTasks(loadedTasks);
         }
-        if (loadedBuckets && loadedBuckets.length > 0) {
+        if (loadedBuckets.length > 0) {
           setBuckets(loadedBuckets);
         }
 
@@ -218,12 +219,33 @@ function App() {
         setPreferences(initialPrefs);
         setPomodoroSeconds(initialPrefs.pomodoroWorkTime * 60);
 
-        if (initialPrefs.defaultStartupView === 'zone') {
-          setIsZoneModeActive(true);
-        } else if (['all', 'today', 'important'].includes(initialPrefs.defaultStartupView)) {
-          setActiveSmartView(initialPrefs.defaultStartupView as 'all' | 'today' | 'important');
-        } else {
+        try {
+          if (initialPrefs.defaultStartupView === 'zone') {
+            setIsZoneModeActive(true);
+          } else if (['all', 'today', 'important'].includes(initialPrefs.defaultStartupView)) {
+            setActiveSmartView(initialPrefs.defaultStartupView as 'all' | 'today' | 'important');
+            if (window.innerWidth < 768) setMobileView('col2');
+          } else if (initialPrefs.defaultStartupView !== 'main') {
+            const bucketExists = 
+              loadedBuckets.find(b => b.id === initialPrefs.defaultStartupView) ||
+              LIFE_BUCKETS.find(b => b.id === initialPrefs.defaultStartupView);
+            
+            if (bucketExists) {
+              setActiveBucketId(initialPrefs.defaultStartupView);
+              setActiveSmartView(null);
+              if (window.innerWidth < 768) setMobileView('col2');
+            } else {
+              throw new Error(`Invalid startup view: ${initialPrefs.defaultStartupView}`);
+            }
+          } else {
+            setActiveSmartView(null);
+            if (window.innerWidth < 768) setMobileView('sidebar');
+          }
+        } catch (err) {
+          console.warn('Failed to apply startup view, falling back to main menu:', err);
           setActiveSmartView(null);
+          setIsZoneModeActive(false);
+          if (window.innerWidth < 768) setMobileView('sidebar');
         }
       } catch (err) {
         console.error('Failed to load from DB, falling back to mocks', err);
@@ -359,7 +381,7 @@ function App() {
 
         const newTask: Task = {
           id: generateId(),
-          title: title.trim(),
+          title: sanitize(title.trim()),
           parentId: parentId ?? undefined,
           category: parentTask?.category ?? activeBucketId,
           priority: parentTask?.priority ?? 'none',
@@ -430,8 +452,12 @@ function App() {
    * recursive tree traversal. React immutability is maintained via `...prev` and `...task`.
    */
   const updateTask = useCallback((taskId: string, updates: Partial<Task>) => {
+    // Sanitize user-editable string fields at this trust boundary.
+    const safe: Partial<Task> = { ...updates };
+    if (typeof safe.title === 'string') safe.title = sanitize(safe.title);
+    if (typeof safe.notes === 'string') safe.notes = sanitize(safe.notes);
     setTasks((prev) =>
-      prev.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
+      prev.map((task) => (task.id === taskId ? { ...task, ...safe } : task)),
     );
   }, []);
 
@@ -594,8 +620,8 @@ function App() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const activeParentTask = activeParentId ? tasks.find((t) => t.id === activeParentId) : null;
-  const activeBucket = getBucketById(activeBucketId);
-  const col2Title = activeParentTask?.title || activeBucket?.defaultLabel.replace(/.* /, '') || 'Categories';
+  const activeBucket = buckets.find(b => b.id === activeBucketId) || getBucketById(activeBucketId);
+  const col2Title = activeParentTask?.title || activeBucket?.defaultLabel?.replace(/.* /, '') || 'Categories';
 
   // The task whose details are currently open (null = drawer hidden)
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) ?? null : null;

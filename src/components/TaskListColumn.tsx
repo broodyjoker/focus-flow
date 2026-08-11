@@ -75,7 +75,7 @@ export function TaskListColumn({
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
   const draggedTaskRef = useRef<string | null>(null);
 
-  const bucket = getBucketById(activeBucketId);
+  const bucket = buckets.find(b => b.id === activeBucketId) || getBucketById(activeBucketId);
   const isSmartView = !!activeSmartView;
 
   // ── Depth ────────────────────────────────────────────────────────────────────
@@ -253,7 +253,7 @@ export function TaskListColumn({
                     <div key={bucket.id} className="mb-5 last:mb-0">
                       <div className="flex items-center gap-2 py-1.5 px-1 mb-1.5 border-b border-slate-100/60 dark:border-slate-800/40">
                         <span className="text-[10px] font-semibold text-slate-400/60 dark:text-slate-600 tracking-[0.12em] uppercase">
-                          {bucket.defaultLabel}
+                          {bucket?.defaultLabel || 'Category'}
                         </span>
                       </div>
                       <div className="space-y-0.5">
