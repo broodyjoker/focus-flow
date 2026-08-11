@@ -70,85 +70,139 @@ export function SettingsModal({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full max-w-4xl h-[85vh] md:h-[75vh] flex flex-col md:flex-row bg-white dark:bg-slate-900 rounded-3xl overflow-hidden shadow-2xl relative"
+            className="w-full max-w-4xl h-[85vh] md:h-[75vh] flex flex-row bg-white dark:bg-slate-900 rounded-3xl overflow-hidden shadow-2xl relative"
           >
             
-            {/* Sidebar Tabs */}
-            <div className="w-full flex-shrink-0 flex overflow-x-auto border-b border-slate-200 dark:border-slate-800 md:w-64 md:h-full md:flex-col md:border-b-0 md:border-r bg-slate-50 dark:bg-slate-800/60 p-4">
-          <nav className="flex-1 flex flex-row md:flex-col gap-2">
-            <TabButton 
-              active={activeTab === 'general'} 
-              onClick={() => setActiveTab('general')} 
-              icon={<Settings2 size={18} />} 
-              label="General" 
-            />
-            <TabButton 
-              active={activeTab === 'categories'} 
-              onClick={() => setActiveTab('categories')} 
-              icon={<Folder size={18} />} 
-              label="Categories" 
-            />
-            <TabButton 
-              active={activeTab === 'storage'} 
-              onClick={() => setActiveTab('storage')} 
-              icon={<HardDrive size={18} />} 
-              label="Storage & Files" 
-            />
-            <TabButton 
-              active={activeTab === 'focus'} 
-              onClick={() => setActiveTab('focus')} 
-              icon={<Timer size={18} />} 
-              label="Pomodoro & Focus" 
-            />
-            <TabButton 
-              active={activeTab === 'audio'} 
-              onClick={() => setActiveTab('audio')} 
-              icon={<Bell size={18} />} 
-              label="Notifications" 
-            />
-            <TabButton 
-              active={activeTab === 'backup'} 
-              onClick={() => setActiveTab('backup')} 
-              icon={<Download size={18} />} 
-              label="Backup & Restore" 
-            />
-            <TabButton 
-              active={activeTab === 'connected'} 
-              onClick={() => setActiveTab('connected')} 
-              icon={<Link size={18} />} 
-              label="Connected Services" 
-            />
-          </nav>
-            
-          {/* PWA Install Button */}
-          <AnimatePresence>
-            {installPrompt && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="mt-auto pt-4 md:mt-4 md:pt-4 border-t border-slate-200 dark:border-slate-700/50"
-              >
+            {/* ── Mobile: Address-Book vertical icon strip ─────────────────────── */}
+            <div className="md:hidden flex-shrink-0 flex flex-col w-14 h-full bg-slate-100 dark:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700/50">
+              <nav className="flex-1 flex flex-col gap-0.5 py-3 overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+                {([
+                  { id: 'general',   icon: <Settings2 size={18} />, label: 'General' },
+                  { id: 'categories',icon: <Folder    size={18} />, label: 'Categories' },
+                  { id: 'storage',   icon: <HardDrive size={18} />, label: 'Storage & Files' },
+                  { id: 'focus',     icon: <Timer     size={18} />, label: 'Pomodoro & Focus' },
+                  { id: 'audio',     icon: <Bell      size={18} />, label: 'Notifications' },
+                  { id: 'backup',    icon: <Download  size={18} />, label: 'Backup & Restore' },
+                  { id: 'connected', icon: <Link      size={18} />, label: 'Connected Services' },
+                ] as { id: TabType; icon: React.ReactNode; label: string }[]).map(({ id, icon, label }) => {
+                  const active = activeTab === id;
+                  return (
+                    <div
+                      key={id}
+                      className={[
+                        'relative mx-1',
+                        active
+                          // Active: same bg as content panel, no right border, bleeds in
+                          ? 'z-10 -mr-px bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/50 border-r-0 rounded-l-2xl rounded-r-none'
+                          // Inactive: slightly darker, left-rounded tabs
+                          : 'z-0 rounded-l-xl rounded-r-none hover:bg-white/60 dark:hover:bg-slate-700/40 transition-colors',
+                      ].join(' ')}
+                    >
+                      <button
+                        type="button"
+                        title={label}
+                        aria-label={label}
+                        aria-pressed={active}
+                        onClick={() => setActiveTab(id)}
+                        className={[
+                          'flex items-center justify-center w-full py-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400 active:scale-95',
+                          active
+                            ? 'text-violet-600 dark:text-violet-400'
+                            : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
+                        ].join(' ')}
+                      >
+                        {icon}
+                      </button>
+                    </div>
+                  );
+                })}
+              </nav>
+
+              {/* PWA install (icon only on mobile strip) */}
+              {installPrompt && (
                 <button
                   onClick={handleInstallClick}
-                  className="w-full bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2.5 px-4 rounded-xl transition-all shadow-lg shadow-violet-500/20 active:scale-[0.98] flex items-center justify-center gap-2"
+                  title="Install App"
+                  aria-label="Install App"
+                  className="flex items-center justify-center w-full py-3 mb-3 text-violet-500 hover:text-violet-700 active:scale-95 transition-colors"
                 >
-                  <span>Install App ⬇️</span>
+                  <Download size={18} />
                 </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+              )}
+            </div>
+
+            {/* ── Desktop: wide sidebar with icons + labels ─────────────────────── */}
+            <div className="hidden md:flex flex-col w-64 flex-shrink-0 h-full border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 p-4">
+              <nav className="flex-1 flex flex-col gap-2">
+                <TabButton active={activeTab === 'general'}   onClick={() => setActiveTab('general')}   icon={<Settings2 size={18} />} label="General" />
+                <TabButton active={activeTab === 'categories'}onClick={() => setActiveTab('categories')} icon={<Folder    size={18} />} label="Categories" />
+                <TabButton active={activeTab === 'storage'}   onClick={() => setActiveTab('storage')}   icon={<HardDrive size={18} />} label="Storage & Files" />
+                <TabButton active={activeTab === 'focus'}     onClick={() => setActiveTab('focus')}     icon={<Timer     size={18} />} label="Pomodoro & Focus" />
+                <TabButton active={activeTab === 'audio'}     onClick={() => setActiveTab('audio')}     icon={<Bell      size={18} />} label="Notifications" />
+                <TabButton active={activeTab === 'backup'}    onClick={() => setActiveTab('backup')}    icon={<Download  size={18} />} label="Backup & Restore" />
+                <TabButton active={activeTab === 'connected'} onClick={() => setActiveTab('connected')} icon={<Link      size={18} />} label="Connected Services" />
+              </nav>
+
+              <AnimatePresence>
+                {installPrompt && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="mt-auto pt-4 border-t border-slate-200 dark:border-slate-700/50"
+                  >
+                    <button
+                      onClick={handleInstallClick}
+                      className="w-full bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2.5 px-4 rounded-xl transition-all shadow-lg shadow-violet-500/20 active:scale-[0.98] flex items-center justify-center gap-2"
+                    >
+                      <span>Install App ⬇️</span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
         {/* Content Area */}
-        <div className="flex-1 flex flex-col overflow-hidden relative">
-          {/* Close button */}
+        <div className="flex-1 flex flex-col overflow-hidden relative bg-white dark:bg-slate-900">
+          {/* Close button — desktop only */}
           <button
             onClick={onClose}
             className="hidden md:block absolute top-6 right-6 p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-all duration-200 active:scale-90"
           >
             <X size={20} />
           </button>
+
+          {/* Mobile section title — replaces the text labels stripped from the icon tabs */}
+          {({
+            general: 'General',
+            categories: 'Categories',
+            storage: 'Storage & Files',
+            focus: 'Pomodoro & Focus',
+            audio: 'Notifications',
+            backup: 'Backup & Restore',
+            connected: 'Connected Services',
+          } as Record<TabType, string>)[activeTab] && (
+            <div className="md:hidden flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+                {({
+                  general: 'General',
+                  categories: 'Categories',
+                  storage: 'Storage & Files',
+                  focus: 'Pomodoro & Focus',
+                  audio: 'Notifications',
+                  backup: 'Backup & Restore',
+                  connected: 'Connected Services',
+                } as Record<TabType, string>)[activeTab]}
+              </h2>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all active:scale-90"
+                aria-label="Close settings"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 md:p-8">
             {activeTab === 'general' && <GeneralTab preferences={preferences} setPreferences={setPreferences} />}
