@@ -54,7 +54,7 @@ function generateId(): string {
 
 function App() {
   // ── Database state ─────────────────────────────────────────────────────────
-  const [isDbLoading, setIsDbLoading] = useState(true);
+  const [isDbLoaded, setIsDbLoaded] = useState(false);
 
   // ── Navigation state ───────────────────────────────────────────────────────
   const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
@@ -250,32 +250,32 @@ function App() {
       } catch (err) {
         console.error('Failed to load from DB, falling back to mocks', err);
       } finally {
-        setIsDbLoading(false);
+        setIsDbLoaded(true);
       }
     }
     init();
   }, []);
 
   // ── Database Sync ──────────────────────────────────────────────────────────
-  // Skip the first render using isDbLoading so we don't accidentally overwrite
+  // Skip the first render using isDbLoaded so we don't accidentally overwrite
   // the database with mock data before we've had a chance to load it.
   useEffect(() => {
-    if (!isDbLoading) {
+    if (isDbLoaded) {
       saveData('tasks', tasks);
     }
-  }, [tasks, isDbLoading]);
+  }, [tasks, isDbLoaded]);
 
   useEffect(() => {
-    if (!isDbLoading) {
+    if (isDbLoaded) {
       saveData('buckets', buckets);
     }
-  }, [buckets, isDbLoading]);
+  }, [buckets, isDbLoaded]);
 
   useEffect(() => {
-    if (!isDbLoading) {
+    if (isDbLoaded) {
       saveData('preferences', preferences);
     }
-  }, [preferences, isDbLoading]);
+  }, [preferences, isDbLoaded]);
 
   // Sync dark class on <html> whenever isDark changes
   useEffect(() => {
@@ -629,7 +629,7 @@ function App() {
   // ── Smart Reminders Scheduler ──────────────────────────────────────────────
   useReminders(tasks, preferences, updateTask);
 
-  if (isDbLoading) {
+  if (!isDbLoaded) {
     return (
       <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-950 font-sans antialiased text-white">
         <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-violet-600 to-fuchsia-500 animate-pulse flex items-center justify-center shadow-[0_0_40px_rgba(139,92,246,0.3)]">
