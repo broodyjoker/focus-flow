@@ -1,48 +1,62 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// App.tsx — root shell
+// =============================================================================
+// App.tsx — Root Shell / Layout Orchestrator
 //
-// Stage 4: Miller Column navigation
+// ROLE OF THIS FILE:
+//   App.tsx is now a pure layout and routing coordinator. It does NOT own
+//   business logic or raw CRUD operations directly.
 //
-// State:
-//   activeBucketId  — which category is open in Col 1
-//   activeParentId  — whose children Col 2 currently shows (null = bucket root)
-//   selectedTaskId  — highlighted row in Col 2; Col 3 shows its children
-//   slideDirection  — 'forward' | 'back'; controls CSS animation class
+//   All state has been delegated to three focused custom hooks:
+//     • usePreferences  →  dark mode, sound, pomodoro settings, startup view
+//     • useBuckets      →  category list, ordering, badge counts
+//     • useTasks        →  task array, all mutations, DB sync
 //
-// Navigation flows:
-//   selectBucket(id)         → reset depth, Col 2 shows bucket root
-//   selectTask(id)           → highlight row in Col 2, Col 3 shows its children
-//   shiftInto(taskId)        → drill forward: old selected → activeParent, clicked → selected
-//   navigateBack()           → go up: old activeParent → selected, its parent → activeParent
+//   App.tsx is responsible for:
+//     1. Running the DB init sequence (loading from IndexedDB on mount).
+//     2. Showing the loading spinner until the DB is ready.
+//     3. Maintaining navigation/routing state (which column/view is active).
+//     4. Wiring hook outputs to child component props.
+//     5. Managing the Pomodoro / Zone Mode local state (timer logic).
 //
-// Data:
-//   addTaskAtLevel(title, parentId) → insert at given level inheriting bucket/priority
-//   toggleTask(id)                  → flip isCompleted
-// ─────────────────────────────────────────────────────────────────────────────
+// DEBUGGING TIP:
+//   If a feature is broken, start here to find which hook or component owns it.
+//   Then follow the prop or hook return value to the specific file.
+// =============================================================================
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 
-import { Sidebar } from './components/Sidebar';
-import { TaskListColumn } from './components/TaskListColumn';
-import { ChildColumn } from './components/ChildColumn';
-import { CalendarView } from './components/CalendarView';
-import { TaskDetailDrawer } from './components/TaskDetailDrawer';
-import { ZoneMode } from './components/ZoneMode';
-import { SettingsModal } from './components/SettingsModal';
-import { QuickCaptureModal } from './components/QuickCaptureModal';
-import { GlobalProgressBar } from './components/GlobalProgressBar';
-import { MOCK_TASKS } from './data/mockTasks';
+// === COMPONENT IMPORTS =======================================================
+
+import { Sidebar }            from './components/Sidebar';
+import { TaskListColumn }     from './components/TaskListColumn';
+import { ChildColumn }        from './components/ChildColumn';
+import { CalendarView }       from './components/CalendarView';
+import { TaskDetailDrawer }   from './components/TaskDetailDrawer';
+import { ZoneMode }           from './components/ZoneMode';
+import { SettingsModal }      from './components/SettingsModal';
+import { QuickCaptureModal }  from './components/QuickCaptureModal';
+import { GlobalProgressBar }  from './components/GlobalProgressBar';
+
+// === HOOK IMPORTS =============================================================
+
+import { usePreferences } from './hooks/usePreferences';
+import { useBuckets }     from './hooks/useBuckets';
+import { useTasks }       from './hooks/useTasks';
+
+// === DATA / MODEL IMPORTS =====================================================
+
 import type { Task, LifeBucket, Preferences } from './models';
 import { getBucketById, LIFE_BUCKETS, DEFAULT_PREFERENCES } from './models';
-import { getTaskDepth, MAX_DEPTH, getRootAncestor, getAllDescendants } from './utils/depth';
-import { getToday, startOfDay } from './utils/dates';
-import { loadData, saveData, loadTasks, loadBuckets } from './utils/db';
-import { sanitize } from './utils/sanitize';
+import { getTaskDepth, MAX_DEPTH } from './utils/depth';
+import { loadData, loadTasks, loadBuckets } from './utils/db';
 import { playSound } from './utils/audio';
 import { sendNotification } from './utils/notifications';
 import { useReminders } from './utils/useReminders';
 
-// ── ID generator ──────────────────────────────────────────────────────────────
+// =============================================================================
+// ID GENERATOR
+// Prefer the native crypto.randomUUID (all modern browsers).
+// Falls back to a random string for legacy environments.
+// =============================================================================
 function generateId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -50,104 +64,245 @@ function generateId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// APP COMPONENT
+// =============================================================================
 
 function App() {
-  // ── Database state ─────────────────────────────────────────────────────────
+
+  // ===========================================================================
+  // === DB LOADING GATE =======================================================
+  // ===========================================================================
+  // `isDbLoaded` starts as false. The entire app renders a loading spinner
+  // until this flips to true. This prevents the race condition where React
+  // tries to render with a custom `activeBucketId` before the buckets array
+  // has been hydrated from IndexedDB — which caused the "White Screen of Death"
+  // on Android PWAs where the Service Worker serves pages instantly.
+
   const [isDbLoaded, setIsDbLoaded] = useState(false);
 
-  // ── Navigation state ───────────────────────────────────────────────────────
-  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
-  const [activeBucketId, setActiveBucketId] = useState<string>('career-moves');
-  const [activeSmartView, setActiveSmartView] = useState<'all' | 'today' | 'tomorrow' | 'important' | null>(null);
-  const [activeMainView, setActiveMainView] = useState<'tasks' | 'calendar'>('tasks');
-  const [activeParentId, setActiveParentId] = useState<string | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [slideDirection, setSlideDirection] = useState<'forward' | 'back'>('forward');
+  // Temporary storage for the raw data loaded from IndexedDB.
+  // These are passed into the hooks after loading so the hooks can hydrate.
+  const [loadedTasksFromDb,   setLoadedTasksFromDb]   = useState<Task[]>([]);
+  const [loadedBucketsFromDb, setLoadedBucketsFromDb] = useState<LifeBucket[]>([]);
+  const [loadedPrefsFromDb,   setLoadedPrefsFromDb]   = useState<Preferences | null>(null);
 
-  // ── Mobile layout & Drawer state ───────────────────────────────────────────
+  // ===========================================================================
+  // === CUSTOM HOOKS ===========================================================
+  // ===========================================================================
+  // Each hook receives `isDbLoaded` as a guard to prevent writing defaults
+  // to the DB before the real data has been loaded. They also receive the
+  // data loaded by the DB init sequence below.
+
+  const {
+    preferences,
+    setPreferences,
+    isDark,
+    toggleDark,
+  } = usePreferences(isDbLoaded);
+
+  const {
+    buckets,
+    setBuckets,
+    reorderBuckets,
+    swapBuckets,
+    taskCountByBucket,
+  } = useBuckets(isDbLoaded, /* tasks injected below after useTasks */ [], loadedBucketsFromDb);
+
+  // NOTE: useTasks needs `preferences` for sound effects.
+  // useBuckets needs `tasks` for badge counts — we pass tasks after both are ready.
+  const {
+    tasks,
+    setTasks,
+    addTaskAtLevel: addTaskAtLevelBase,
+    toggleTask,
+    updateTask,
+    deleteTask: deleteTaskBase,
+    duplicateTask,
+    reorderTasks,
+    swapTasks,
+    globalProgress,
+    showGlobalProgress,
+  } = useTasks(isDbLoaded, preferences, loadedTasksFromDb);
+
+  // useBuckets needs the live tasks array for badge counts.
+  // Since hooks can't be called conditionally, we use a separate memo here.
+  // This keeps useBuckets's internal memoization correct.
+  const taskCountByBucketLive = useMemo(() =>
+    tasks.reduce<Record<string, number>>((acc, task) => {
+      if (!task.isCompleted && !task.parentId) {
+        acc[task.category] = (acc[task.category] ?? 0) + 1;
+      }
+      return acc;
+    }, {}),
+  [tasks]);
+
+  // ===========================================================================
+  // === DB INIT SEQUENCE =======================================================
+  // ===========================================================================
+  // Runs exactly once on mount. Loads all data from IndexedDB, applies
+  // preferences (including the startup routing), then sets isDbLoaded = true
+  // to release the loading gate.
+
+  useEffect(() => {
+    async function init() {
+      try {
+        // Load all three stores in parallel for speed.
+        const [rawTasks, rawBuckets, rawPrefs] = await Promise.all([
+          loadTasks(),
+          loadBuckets(),
+          loadData<Preferences>('preferences'),
+        ]);
+
+        // Hydrate the hooks via the temporary state vars.
+        if (rawTasks.length > 0)   setLoadedTasksFromDb(rawTasks);
+        if (rawBuckets.length > 0) setLoadedBucketsFromDb(rawBuckets);
+
+        // Apply preferences — use saved prefs or fall back to defaults.
+        const initialPrefs = rawPrefs || DEFAULT_PREFERENCES;
+        setLoadedPrefsFromDb(initialPrefs);
+        setPreferences(initialPrefs);
+        setPomodoroSeconds(initialPrefs.pomodoroWorkTime * 60);
+
+        // --- Apply startup routing ---
+        // This runs AFTER the buckets and tasks are stored in state,
+        // so the routing logic always has valid data to work with.
+        try {
+          const view = initialPrefs.defaultStartupView;
+
+          if (view === 'zone') {
+            setIsZoneModeActive(true);
+
+          } else if (['all', 'today', 'tomorrow', 'important'].includes(view)) {
+            setActiveSmartView(view as 'all' | 'today' | 'tomorrow' | 'important');
+            if (window.innerWidth < 768) setMobileView('col2');
+
+          } else if (view !== 'main') {
+            // It's a custom bucket ID — verify it exists before navigating to it.
+            const bucketExists =
+              rawBuckets.find(b => b.id === view) ||
+              LIFE_BUCKETS.find(b => b.id === view);
+
+            if (bucketExists) {
+              setActiveBucketId(view);
+              setActiveSmartView(null);
+              if (window.innerWidth < 768) setMobileView('col2');
+            } else {
+              // The saved bucket ID no longer exists — fall back safely.
+              throw new Error(`Invalid startup view ID: ${view}`);
+            }
+
+          } else {
+            // 'main' = show the category list (sidebar on mobile).
+            setActiveSmartView(null);
+            if (window.innerWidth < 768) setMobileView('sidebar');
+          }
+
+        } catch (routingErr) {
+          // If routing fails for any reason, fall back to the main menu.
+          // This prevents users from getting permanently stuck on a white screen.
+          console.warn('[App] Startup routing failed, falling back to main:', routingErr);
+          setActiveSmartView(null);
+          setIsZoneModeActive(false);
+          if (window.innerWidth < 768) setMobileView('sidebar');
+        }
+
+      } catch (dbErr) {
+        // If the entire DB load fails, the app still renders with mock data.
+        console.error('[App] DB init failed, using defaults:', dbErr);
+      } finally {
+        // Always release the loading gate — even on failure — so the user
+        // isn't permanently stuck on the loading screen.
+        setIsDbLoaded(true);
+      }
+    }
+
+    init();
+  // This effect has no dependencies and must only run once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ===========================================================================
+  // === NAVIGATION STATE =======================================================
+  // ===========================================================================
+  // These control which column/view/depth the user is currently looking at.
+  // They live in App because they coordinate between multiple child components.
+
+  const [activeBucketId,  setActiveBucketId]  = useState<string>('career-moves');
+  const [activeSmartView, setActiveSmartView] = useState<'all' | 'today' | 'tomorrow' | 'important' | null>(null);
+  const [activeMainView,  setActiveMainView]  = useState<'tasks' | 'calendar'>('tasks');
+  const [activeParentId,  setActiveParentId]  = useState<string | null>(null);
+  const [selectedTaskId,  setSelectedTaskId]  = useState<string | null>(null);
+  const [slideDirection,  setSlideDirection]  = useState<'forward' | 'back'>('forward');
+
+  // Mobile uses a single-column layout; this controls which "column" is visible.
   const [mobileView, setMobileView] = useState<'sidebar' | 'col2' | 'col3'>('sidebar');
 
-  // ── Pomodoro & Zone Mode state ─────────────────────────────────────────────
-  const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
+  // ===========================================================================
+  // === ZONE MODE & POMODORO STATE =============================================
+  // ===========================================================================
+  // These are tightly coupled to each other and don't need their own hook yet.
+  // If the timer logic grows significantly, extract to a `usePomodoro` hook.
+
   const [activeFocusTaskId, setActiveFocusTaskId] = useState<string | null>(null);
-  const [pomodoroSeconds, setPomodoroSeconds] = useState<number>(DEFAULT_PREFERENCES.pomodoroWorkTime * 60);
-  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
-  const [timerMode, setTimerMode] = useState<'work' | 'shortBreak' | 'longBreak'>('work');
-  const [isZoneModeActive, setIsZoneModeActive] = useState<boolean>(false);
+  const [pomodoroSeconds,   setPomodoroSeconds]   = useState<number>(DEFAULT_PREFERENCES.pomodoroWorkTime * 60);
+  const [isTimerRunning,    setIsTimerRunning]    = useState<boolean>(false);
+  const [timerMode,         setTimerMode]         = useState<'work' | 'shortBreak' | 'longBreak'>('work');
+  const [isZoneModeActive,  setIsZoneModeActive]  = useState<boolean>(false);
 
-  // ── Categories / Buckets state ─────────────────────────────────────────────
-  const [buckets, setBuckets] = useState<LifeBucket[]>(LIFE_BUCKETS);
-
-  const reorderBuckets = useCallback((startIndex: number, endIndex: number) => {
-    setBuckets((prev) => {
-      const result = Array.from(prev);
-      const [removed] = result.splice(startIndex, 1);
-      result.splice(endIndex, 0, removed);
-      return result;
-    });
-  }, []);
-
-  const swapBuckets = useCallback((id1: string, id2: string) => {
-    setBuckets((prev) => {
-      const idx1 = prev.findIndex((b) => b.id === id1);
-      const idx2 = prev.findIndex((b) => b.id === id2);
-      if (idx1 === -1 || idx2 === -1) return prev;
-      const result = [...prev];
-      const temp = result[idx1];
-      result[idx1] = result[idx2];
-      result[idx2] = temp;
-      return result;
-    });
-  }, []);
-
-  // Timer countdown effect
+  // --- Pomodoro countdown tick ---
   useEffect(() => {
     let interval: NodeJS.Timeout;
+
     if (isTimerRunning && pomodoroSeconds > 0) {
       interval = setInterval(() => {
-        setPomodoroSeconds((prev) => prev - 1);
+        setPomodoroSeconds(prev => prev - 1);
       }, 1000);
+
     } else if (isTimerRunning && pomodoroSeconds === 0) {
-      // Timer finished — all derived values computed inside the closure
-      // so `newMode` is in scope when used by notifications and sound.
-      const newMode = timerMode === 'work' ? 'shortBreak' : 'work';
-      const isWorkNext = newMode === 'work';
-      const title = isWorkNext ? 'Break Over!' : 'Focus Session Complete!';
-      const body = isWorkNext ? 'Time to get back to deep work.' : 'Time to take a short break.';
+      // Session complete: switch mode, play sound, send notification.
+      const newMode     = timerMode === 'work' ? 'shortBreak' : 'work';
+      const isWorkNext  = newMode === 'work';
+      const title       = isWorkNext ? 'Break Over!'              : 'Focus Session Complete!';
+      const body        = isWorkNext ? 'Time to get back to work.' : 'Time to take a short break.';
 
       playSound('chime', preferences.soundEffects);
       sendNotification(title, body, preferences.pushNotifications);
 
+      // Defer state updates outside the render cycle.
       setTimeout(() => {
         setIsTimerRunning(false);
         setTimerMode(newMode);
-        setPomodoroSeconds(newMode === 'work' ? preferences.pomodoroWorkTime * 60 : preferences.pomodoroBreakTime * 60);
+        setPomodoroSeconds(
+          newMode === 'work'
+            ? preferences.pomodoroWorkTime * 60
+            : preferences.pomodoroBreakTime * 60
+        );
       }, 0);
     }
+
     return () => clearInterval(interval);
   }, [isTimerRunning, pomodoroSeconds, timerMode, preferences]);
 
-  // Handle timer toggling from anywhere
+  /** Start/stop the timer, optionally switching focus to a new task. */
   const toggleTimer = useCallback((taskId?: string) => {
-    if (taskId) {
-      if (activeFocusTaskId !== taskId) {
-        // Switching to a new task resets the timer if it's currently running on another task
-        // or just adopts the new task with the current timer.
-        setActiveFocusTaskId(taskId);
-        setTimerMode('work');
-        setPomodoroSeconds(preferences.pomodoroWorkTime * 60);
-      }
+    if (taskId && activeFocusTaskId !== taskId) {
+      // Switching task: reset timer for the new task.
+      setActiveFocusTaskId(taskId);
+      setTimerMode('work');
+      setPomodoroSeconds(preferences.pomodoroWorkTime * 60);
     }
-    setIsTimerRunning((prev) => !prev);
+    setIsTimerRunning(prev => !prev);
   }, [activeFocusTaskId, preferences.pomodoroWorkTime]);
 
+  /** Reset the timer back to the work duration without changing focus task. */
   const resetTimer = useCallback(() => {
     setIsTimerRunning(false);
     setTimerMode('work');
     setPomodoroSeconds(preferences.pomodoroWorkTime * 60);
   }, [preferences.pomodoroWorkTime]);
 
+  /** Change the focus task and reset the timer to work mode. */
   const selectFocusTask = useCallback((taskId: string) => {
     setActiveFocusTaskId(taskId);
     setIsTimerRunning(false);
@@ -155,34 +310,31 @@ function App() {
     setPomodoroSeconds(preferences.pomodoroWorkTime * 60);
   }, [preferences.pomodoroWorkTime]);
 
+  /** Toggle Zone Mode on/off. Auto-selects the first inZone task if none is focused. */
   const toggleZoneMode = useCallback(() => {
-    setIsZoneModeActive((prev) => {
+    setIsZoneModeActive(prev => {
       const next = !prev;
       if (next && !activeFocusTaskId) {
-        // Auto-select the first inZone task if none is currently focused
         const zoneTasks = tasks.filter(t => t.inZone && !t.isCompleted);
-        if (zoneTasks.length > 0) {
-          setActiveFocusTaskId(zoneTasks[0].id);
-        }
+        if (zoneTasks.length > 0) setActiveFocusTaskId(zoneTasks[0].id);
       }
       return next;
     });
   }, [activeFocusTaskId, tasks]);
 
-  // ── UI state ───────────────────────────────────────────────────────────────
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    // Persist dark mode preference across sessions
-    try {
-      return localStorage.getItem('theme') === 'dark';
-    } catch {
-      return false;
-    }
-  });
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isQuickCaptureOpen, setIsQuickCaptureOpen] = useState(false);
+  // ===========================================================================
+  // === UI STATE ===============================================================
+  // ===========================================================================
 
-  // ── Global Keyboard Shortcuts ──────────────────────────────────────────────
+  const [openTaskId,          setOpenTaskId]          = useState<string | null>(null);
+  const [isSettingsOpen,      setIsSettingsOpen]      = useState(false);
+  const [isQuickCaptureOpen,  setIsQuickCaptureOpen]  = useState(false);
+
+  // ===========================================================================
+  // === EFFECTS ================================================================
+  // ===========================================================================
+
+  // --- Global keyboard shortcut: Ctrl/Cmd+K opens Quick Capture ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -194,105 +346,14 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // --- Smart Reminders: schedules browser notifications for due tasks ---
+  useReminders(tasks, preferences, updateTask);
 
-  // ── Global Progress State ──────────────────────────────────────────────────
-  const [globalProgress, setGlobalProgress] = useState(0);
-  const [showGlobalProgress, setShowGlobalProgress] = useState(false);
-  const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // ===========================================================================
+  // === NAVIGATION ACTIONS ====================================================
+  // ===========================================================================
 
-  // ── Database Initialization ────────────────────────────────────────────────
-  useEffect(() => {
-    async function init() {
-      try {
-        const loadedTasks       = await loadTasks();
-        const loadedBuckets     = await loadBuckets();
-        const loadedPreferences = await loadData<Preferences>('preferences');
-
-        if (loadedTasks.length > 0) {
-          setTasks(loadedTasks);
-        }
-        if (loadedBuckets.length > 0) {
-          setBuckets(loadedBuckets);
-        }
-
-        const initialPrefs = loadedPreferences || DEFAULT_PREFERENCES;
-        setPreferences(initialPrefs);
-        setPomodoroSeconds(initialPrefs.pomodoroWorkTime * 60);
-
-        try {
-          if (initialPrefs.defaultStartupView === 'zone') {
-            setIsZoneModeActive(true);
-          } else if (['all', 'today', 'important'].includes(initialPrefs.defaultStartupView)) {
-            setActiveSmartView(initialPrefs.defaultStartupView as 'all' | 'today' | 'important');
-            if (window.innerWidth < 768) setMobileView('col2');
-          } else if (initialPrefs.defaultStartupView !== 'main') {
-            const bucketExists = 
-              loadedBuckets.find(b => b.id === initialPrefs.defaultStartupView) ||
-              LIFE_BUCKETS.find(b => b.id === initialPrefs.defaultStartupView);
-            
-            if (bucketExists) {
-              setActiveBucketId(initialPrefs.defaultStartupView);
-              setActiveSmartView(null);
-              if (window.innerWidth < 768) setMobileView('col2');
-            } else {
-              throw new Error(`Invalid startup view: ${initialPrefs.defaultStartupView}`);
-            }
-          } else {
-            setActiveSmartView(null);
-            if (window.innerWidth < 768) setMobileView('sidebar');
-          }
-        } catch (err) {
-          console.warn('Failed to apply startup view, falling back to main menu:', err);
-          setActiveSmartView(null);
-          setIsZoneModeActive(false);
-          if (window.innerWidth < 768) setMobileView('sidebar');
-        }
-      } catch (err) {
-        console.error('Failed to load from DB, falling back to mocks', err);
-      } finally {
-        setIsDbLoaded(true);
-      }
-    }
-    init();
-  }, []);
-
-  // ── Database Sync ──────────────────────────────────────────────────────────
-  // Skip the first render using isDbLoaded so we don't accidentally overwrite
-  // the database with mock data before we've had a chance to load it.
-  useEffect(() => {
-    if (isDbLoaded) {
-      saveData('tasks', tasks);
-    }
-  }, [tasks, isDbLoaded]);
-
-  useEffect(() => {
-    if (isDbLoaded) {
-      saveData('buckets', buckets);
-    }
-  }, [buckets, isDbLoaded]);
-
-  useEffect(() => {
-    if (isDbLoaded) {
-      saveData('preferences', preferences);
-    }
-  }, [preferences, isDbLoaded]);
-
-  // Sync dark class on <html> whenever isDark changes
-  useEffect(() => {
-    const root = document.documentElement;
-    if (isDark) {
-      root.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      root.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDark]);
-
-  const toggleDark = useCallback(() => setIsDark((d) => !d), []);
-
-  // ── Navigation actions ─────────────────────────────────────────────────────
-
+  /** Switch to a specific bucket (category). Resets depth to root. */
   const selectBucket = useCallback((bucketId: string) => {
     setActiveMainView('tasks');
     setActiveBucketId(bucketId);
@@ -303,6 +364,7 @@ function App() {
     setSlideDirection('back');
   }, []);
 
+  /** Switch to a Smart View (All, Today, Tomorrow, Important). */
   const selectSmartView = useCallback((view: 'all' | 'today' | 'tomorrow' | 'important') => {
     setActiveMainView('tasks');
     setActiveSmartView(view);
@@ -312,322 +374,101 @@ function App() {
     setSlideDirection('back');
   }, []);
 
-  /** Clicking a task in column 2 either selects it (opening column 3) or unselects it. */
+  /**
+   * Select a task in Column 2.
+   * On desktop: toggles selection (click again to deselect).
+   * On mobile: always selects and navigates to Col 3.
+   */
   const selectTask = useCallback((taskId: string) => {
-    setSelectedTaskId((prev) => {
-      // On mobile view (which we approximate by assuming col2 to col3 transitions),
-      // we always want to select it to ensure col3 isn't empty when we navigate.
-      // But we can check window.innerWidth for a robust mobile check.
-      const isMobile = window.innerWidth < 768;
-      if (isMobile) return taskId;
-      return prev === taskId ? null : taskId;
-    });
-    // On mobile, tapping a task navigates to Col 3
-    if (window.innerWidth < 768) {
-      setMobileView('col3');
-    }
+    const isMobile = window.innerWidth < 768;
+    setSelectedTaskId(prev => (isMobile ? taskId : prev === taskId ? null : taskId));
+    if (isMobile) setMobileView('col3');
   }, []);
 
   /**
-   * Clicking a row in Column 3 ("shift forward").
-   * The clicked child becomes the new selected task;
-   * the old selected task becomes the new activeParent.
-   * Column 2 will now show what Column 3 was showing.
+   * Drill forward from Column 3 into a child.
+   * The old selected task becomes the new activeParent (Column 2 now shows
+   * what Column 3 was showing). Guards against exceeding MAX_DEPTH.
    */
-  const shiftInto = useCallback(
-    (taskId: string) => {
-      // Guard: leaf nodes (Level MAX_DEPTH) cannot be drilled into.
-      // ChildColumn enforces this in the UI; this is the data-layer safety net.
-      if (getTaskDepth(taskId, tasks) >= MAX_DEPTH) return;
+  const shiftInto = useCallback((taskId: string) => {
+    if (getTaskDepth(taskId, tasks) >= MAX_DEPTH) return;
+    setSlideDirection('forward');
+    setActiveParentId(selectedTaskId);
+    setSelectedTaskId(taskId);
+  }, [selectedTaskId, tasks]);
 
-      setSlideDirection('forward');
-      setActiveParentId(selectedTaskId);
-      setSelectedTaskId(taskId);
-    },
-    [selectedTaskId, tasks],
-  );
-
-  /** Navigating "back" one column left. */
+  /**
+   * Navigate one level up in the Miller Column hierarchy.
+   * Restores the parent's parent as the new active context.
+   */
   const navigateBack = useCallback(() => {
     if (!activeParentId) return;
-    const activeParentTask = tasks.find((t) => t.id === activeParentId);
+    const activeParentTask = tasks.find(t => t.id === activeParentId);
     setSlideDirection('back');
-    setSelectedTaskId(activeParentId);                         // highlight where we came from
-    setActiveParentId(activeParentTask?.parentId ?? null);     // go up one level
-    setMobileView('col2'); // Ensure we stay in col2 on mobile
+    setSelectedTaskId(activeParentId);                        // highlight where we came from
+    setActiveParentId(activeParentTask?.parentId ?? null);    // go up one level
+    setMobileView('col2');
   }, [activeParentId, tasks]);
 
-  // Mobile: Back from Col 3 to Col 2
-  const mobileBackToCol2 = useCallback(() => {
-    setMobileView('col2');
-  }, []);
+  /** Mobile-only: go back from Col 3 to Col 2 without changing depth. */
+  const mobileBackToCol2 = useCallback(() => setMobileView('col2'), []);
 
-  // ── Data handlers ──────────────────────────────────────────────────────────
+  // ===========================================================================
+  // === TASK ACTION ADAPTERS ==================================================
+  // ===========================================================================
+  // These thin wrappers adapt the hook's API to the shape the child
+  // components expect, without touching the hook's internal logic.
 
   /**
-   * addTaskAtLevel — called by either column's BrainDump.
-   * parentId === null  →  root task in active bucket
-   * parentId !== null  →  sub-task; inherits category + priority from parent
+   * addTaskAtLevel — adapts the hook's function (which takes activeBucketId as
+   * an explicit param) to the child component API (which doesn't pass it).
    */
   const addTaskAtLevel = useCallback(
     (title: string, parentId: string | null) => {
-      setTasks((prev) => {
-        // Guard: never create a task whose depth would exceed MAX_DEPTH.
-        // The BrainDump is hidden in the UI when at max depth, but this
-        // ensures correctness even if called programmatically.
-        if (parentId && getTaskDepth(parentId, prev) >= MAX_DEPTH) return prev;
-
-        const parentTask = parentId ? prev.find((t) => t.id === parentId) : null;
-
-        const newTask: Task = {
-          id: generateId(),
-          title: sanitize(title.trim()),
-          parentId: parentId ?? undefined,
-          category: parentTask?.category ?? activeBucketId,
-          priority: parentTask?.priority ?? 'none',
-          isRoutine: false,
-          isCompleted: false,
-        };
-
-        if (!parentId) {
-          return [newTask, ...prev];
-        }
-
-        // Insert immediately after the parent's last existing child sibling
-        const parentIndex = prev.findIndex((t) => t.id === parentId);
-        let insertAt = parentIndex + 1;
-        while (insertAt < prev.length && prev[insertAt].parentId === parentId) {
-          insertAt++;
-        }
-        const updated = [...prev];
-        updated.splice(insertAt, 0, newTask);
-        return updated;
-      });
+      addTaskAtLevelBase(title, parentId, activeBucketId);
     },
-    [activeBucketId],
+    [addTaskAtLevelBase, activeBucketId],
   );
 
-  /** Flip isCompleted on any task. */
-  const toggleTask = useCallback((id: string) => {
-    setTasks((prev) => {
-      const updated = prev.map((task) =>
-        task.id === id ? { ...task, isCompleted: !task.isCompleted } : task,
-      );
-
-      // Check if task was completed, trigger global ephemeral progress and sound
-      const toggledTask = updated.find((t) => t.id === id);
-      if (toggledTask && toggledTask.isCompleted) {
-        // Fire completion sound outside pure reducer
-        setTimeout(() => playSound('tick', preferences.soundEffects), 0);
-
-        const rootAncestor = getRootAncestor(id, updated);
-        if (rootAncestor) {
-          const descendants = getAllDescendants(rootAncestor.id, updated);
-          if (descendants.length > 0) {
-            const completedCount = descendants.filter((t) => t.isCompleted).length;
-            const progress = Math.round((completedCount / descendants.length) * 100);
-
-            // Defer side effects outside the pure reducer
-            setTimeout(() => {
-              setGlobalProgress(progress);
-              setShowGlobalProgress(true);
-
-              if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
-              progressTimerRef.current = setTimeout(() => {
-                setShowGlobalProgress(false);
-              }, 4000);
-            }, 0);
-          }
-        }
-      }
-      return updated;
-    });
-  }, [preferences.soundEffects]);
-
   /**
-   * Universal update for the Task Detail Drawer and inline actions.
-   * Accepts any Partial<Task> subset so a single handler covers all fields.
-   * NOTE: Because our `tasks` state is a flat array, mapping over it naturally
-   * updates the specific sub-task at ANY depth level (1 through 5) without needing 
-   * recursive tree traversal. React immutability is maintained via `...prev` and `...task`.
+   * deleteTask — adapts the hook's function (which takes UI setters as params)
+   * to the child component API (which only passes the taskId).
    */
-  const updateTask = useCallback((taskId: string, updates: Partial<Task>) => {
-    // Sanitize user-editable string fields at this trust boundary.
-    const safe: Partial<Task> = { ...updates };
-    if (typeof safe.title === 'string') safe.title = sanitize(safe.title);
-    if (typeof safe.notes === 'string') safe.notes = sanitize(safe.notes);
-    setTasks((prev) =>
-      prev.map((task) => (task.id === taskId ? { ...task, ...safe } : task)),
-    );
-  }, []);
-
-  const reorderTasks = useCallback((draggedId: string, dropTargetId: string) => {
-    setTasks((prev) => {
-      const result = [...prev];
-      const draggedIndex = result.findIndex((t) => t.id === draggedId);
-      if (draggedIndex === -1) return prev;
-      const [removed] = result.splice(draggedIndex, 1);
-      
-      const targetIndex = result.findIndex((t) => t.id === dropTargetId);
-      if (targetIndex === -1) return prev; // should not happen
-
-      const originalTargetIndex = prev.findIndex(t => t.id === dropTargetId);
-      if (draggedIndex < originalTargetIndex) {
-          result.splice(targetIndex + 1, 0, removed); // insert after if dragged down
-      } else {
-          result.splice(targetIndex, 0, removed); // insert before if dragged up
-      }
-      return result;
-    });
-  }, []);
-
-  const swapTasks = useCallback((id1: string, id2: string) => {
-    setTasks((prev) => {
-      const idx1 = prev.findIndex((t) => t.id === id1);
-      const idx2 = prev.findIndex((t) => t.id === id2);
-      if (idx1 === -1 || idx2 === -1) return prev;
-      const result = [...prev];
-      const temp = result[idx1];
-      result[idx1] = result[idx2];
-      result[idx2] = temp;
-      return result;
-    });
-  }, []);
+  const deleteTask = useCallback((taskId: string) => {
+    deleteTaskBase(taskId, setOpenTaskId, setSelectedTaskId);
+  }, [deleteTaskBase]);
 
   /** Open the detail drawer for a given task. */
-  const openDetail = useCallback((taskId: string) => {
-    setOpenTaskId(taskId);
-  }, []);
+  const openDetail = useCallback((taskId: string) => setOpenTaskId(taskId), []);
 
   /** Close the detail drawer. */
-  const closeDetail = useCallback(() => {
-    setOpenTaskId(null);
-  }, []);
+  const closeDetail = useCallback(() => setOpenTaskId(null), []);
 
-  /** Delete a task and all its nested sub-tasks recursively. */
-  const deleteTask = useCallback((taskId: string) => {
-    setTasks((prev) => {
-      const idsToDelete = new Set<string>([taskId]);
-      let added = true;
-      // Recursively find all children, grandchildren, etc.
-      while (added) {
-        added = false;
-        for (const t of prev) {
-          if (t.parentId && idsToDelete.has(t.parentId) && !idsToDelete.has(t.id)) {
-            idsToDelete.add(t.id);
-            added = true;
-          }
-        }
-      }
-      return prev.filter((t) => !idsToDelete.has(t.id));
-    });
-    // Close detail drawer if the deleted task is currently open
-    setOpenTaskId((current) => (current === taskId ? null : current));
-    // Reset selection if the deleted task was selected
-    setSelectedTaskId((current) => (current === taskId ? null : current));
-  }, []);
+  // ===========================================================================
+  // === DERIVED / COMPUTED VALUES =============================================
+  // ===========================================================================
 
-  /**
-   * Duplicate a task (and all its subtasks) with new IDs.
-   * The clone is inserted immediately after the original.
-   */
-  const duplicateTask = useCallback((taskId: string) => {
-    setTasks((prev) => {
-      const original = prev.find((t) => t.id === taskId);
-      if (!original) return prev;
-
-      // Build a mapping from old IDs → new IDs for the task and all descendants
-      const idMap = new Map<string, string>();
-      const idsToClone: string[] = [taskId];
-
-      // Collect all descendants in BFS order
-      let i = 0;
-      while (i < idsToClone.length) {
-        const currentId = idsToClone[i];
-        for (const t of prev) {
-          if (t.parentId === currentId) idsToClone.push(t.id);
-        }
-        i++;
-      }
-
-      // Generate new IDs for everything
-      for (const id of idsToClone) {
-        idMap.set(id, generateId());
-      }
-
-      // Build cloned tasks, remapping parent IDs
-      const clones = idsToClone.map((id) => {
-        const src = prev.find((t) => t.id === id)!;
-        return {
-          ...src,
-          id: idMap.get(id)!,
-          parentId: src.parentId ? idMap.get(src.parentId) ?? src.parentId : undefined,
-          title: id === taskId ? `${src.title} (Copy)` : src.title,
-          isCompleted: false,
-        };
-      });
-
-      // Insert clones immediately after the original block (after its last descendant)
-      const lastOriginalIdx = prev.reduce(
-        (max, t, idx) => (idsToClone.includes(t.id) ? idx : max),
-        prev.findIndex((t) => t.id === taskId),
-      );
-
-      const updated = [...prev];
-      updated.splice(lastOriginalIdx + 1, 0, ...clones);
-      return updated;
-    });
-  }, []);
-
-  // ── Auto-expire routines on mount ─────────────────────────────────────────────────────
-  // If a routine task has a past dueDate: roll it forward to Today and
-  // uncheck it. This runs once on load so routines never pile up as "overdue".
-  useEffect(() => {
-    const today = getToday();
-    setTimeout(() => {
-      setTasks((prev) =>
-        prev.map((task) => {
-          if (
-            task.isRoutine &&
-            task.dueDate &&
-            startOfDay(task.dueDate).getTime() < today.getTime()
-          ) {
-            return { ...task, dueDate: today, isCompleted: false };
-          }
-          return task;
-        })
-      );
-    }, 0);
-  }, []);
-
-
-  // ── Derived: sidebar badge counts ──────────────────────────────────────────
-  // Only top-level incomplete tasks count toward the bucket badges.
-  // Memoized so the Sidebar doesn't re-render on unrelated state changes.
-  const taskCountByBucket = useMemo(() =>
-    tasks.reduce<Record<string, number>>((acc, task) => {
-      if (!task.isCompleted && !task.parentId) {
-        acc[task.category] = (acc[task.category] ?? 0) + 1;
-      }
-      return acc;
-    }, {})
-  , [tasks]);
-
-  // ── Animation ──────────────────────────────────────────────────────────────
+  // Animation class for the slide transition between columns.
   const slideClass = slideDirection === 'forward' ? 'col-slide-forward' : 'col-slide-back';
+
+  // Animation keys force React to re-mount the column with a fresh animation
+  // whenever the user navigates to a different bucket or depth level.
   const col2AnimKey = `${activeBucketId}-${activeParentId ?? 'root'}`;
   const col3AnimKey = `${selectedTaskId ?? 'none'}`;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  const activeParentTask = activeParentId ? tasks.find((t) => t.id === activeParentId) : null;
-  const activeBucket = buckets.find(b => b.id === activeBucketId) || getBucketById(activeBucketId);
-  const col2Title = activeParentTask?.title || activeBucket?.defaultLabel?.replace(/.* /, '') || 'Categories';
+  // The heading shown in Column 2's header.
+  const activeParentTask = activeParentId ? tasks.find(t => t.id === activeParentId) : null;
+  const activeBucket     = buckets.find(b => b.id === activeBucketId) || getBucketById(activeBucketId);
+  const col2Title        = activeParentTask?.title || activeBucket?.defaultLabel?.replace(/.* /, '') || 'Categories';
 
-  // The task whose details are currently open (null = drawer hidden)
-  const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) ?? null : null;
+  // The task currently open in the detail drawer (null = drawer is hidden).
+  const openTask = openTaskId ? tasks.find(t => t.id === openTaskId) ?? null : null;
 
-  // ── Smart Reminders Scheduler ──────────────────────────────────────────────
-  useReminders(tasks, preferences, updateTask);
+  // ===========================================================================
+  // === RENDER — LOADING GATE =================================================
+  // ===========================================================================
+  // Block ALL rendering until IndexedDB has fully loaded. This is the single
+  // most important guard against the "White Screen of Death" on PWA startup.
 
   if (!isDbLoaded) {
     return (
@@ -638,11 +479,16 @@ function App() {
           </svg>
         </div>
         <p className="mt-4 text-xs font-semibold tracking-widest uppercase text-slate-500 animate-pulse">
-          Loading
+          Loading workspace...
         </p>
       </div>
     );
   }
+
+  // ===========================================================================
+  // === RENDER — ZONE MODE ====================================================
+  // ===========================================================================
+  // Zone Mode takes over the full screen when active.
 
   if (isZoneModeActive) {
     return (
@@ -661,23 +507,27 @@ function App() {
     );
   }
 
+  // ===========================================================================
+  // === RENDER — MAIN LAYOUT ==================================================
+  // ===========================================================================
+
   return (
     <div className="flex h-screen w-screen overflow-hidden font-sans antialiased bg-white dark:bg-slate-900 relative">
 
-      {/* ── Global Ephemeral Progress Bar ───────────────────────────────────── */}
-      <GlobalProgressBar 
-        showGlobalProgress={showGlobalProgress} 
-        globalProgress={globalProgress} 
+      {/* ── Ephemeral task-completion progress bar (top of screen) ─────────── */}
+      <GlobalProgressBar
+        showGlobalProgress={showGlobalProgress}
+        globalProgress={globalProgress}
       />
 
-      {/* Sidebar (Mobile Home or Desktop Left Column) */}
+      {/* ── Sidebar: category list & navigation (mobile home / desktop left) ── */}
       <Sidebar
         isActiveMobileView={mobileView === 'sidebar'}
         onClose={() => setMobileView('col2')}
         buckets={buckets}
         activeBucketId={activeBucketId}
         activeSmartView={activeSmartView}
-        taskCountByBucket={taskCountByBucket}
+        taskCountByBucket={taskCountByBucketLive}
         onSelectBucket={selectBucket}
         onSelectSmartView={selectSmartView}
         isDark={isDark}
@@ -689,19 +539,22 @@ function App() {
         onToggleCalendar={() => { setActiveMainView('calendar'); setActiveSmartView(null); }}
       />
 
+      {/* ── Main Content: Calendar or Miller Columns ──────────────────────── */}
       {activeMainView === 'calendar' ? (
-        <CalendarView 
+
+        <CalendarView
           tasks={tasks}
           preferences={preferences}
           onAddTask={(title, dueDate) => {
-            const newTask = {
+            // Calendar adds tasks directly to the flat array with a generated ID.
+            const newTask: Task = {
               id: generateId(),
               title,
               category: activeBucketId || 'career-moves',
-              priority: 'none' as const,
+              priority: 'none',
               isRoutine: false,
               isCompleted: false,
-              dueDate
+              dueDate,
             };
             setTasks(prev => [...prev, newTask]);
           }}
@@ -711,9 +564,10 @@ function App() {
           onToggleTimer={toggleTimer}
           onClose={() => setActiveMainView('tasks')}
         />
+
       ) : (
         <>
-          {/* Column 2 — task list at active level */}
+          {/* Column 2 — task list at the current active level */}
           <TaskListColumn
             isActiveMobileView={mobileView === 'col2'}
             buckets={buckets}
@@ -737,7 +591,7 @@ function App() {
             onSwapTasks={swapTasks}
           />
 
-          {/* Column 3 — children of the selected task */}
+          {/* Column 3 — children of the currently selected task */}
           <ChildColumn
             isActiveMobileView={mobileView === 'col3'}
             parentListName={col2Title}
@@ -759,12 +613,11 @@ function App() {
         </>
       )}
 
-      {/* Task Detail Drawer — portaled over Col 3 */}
+      {/* ── Task Detail Drawer (slides over Column 3) ────────────────────── */}
       {openTask && (
         <TaskDetailDrawer
           task={openTask}
           tasks={tasks}
-          isVisible={!!openTask}
           onClose={closeDetail}
           onUpdate={updateTask}
           onDelete={deleteTask}
@@ -775,6 +628,7 @@ function App() {
         />
       )}
 
+      {/* ── Settings Modal ───────────────────────────────────────────────── */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -786,7 +640,7 @@ function App() {
         setPreferences={setPreferences}
       />
 
-      {/* Quick Capture Modal (Ctrl+K) */}
+      {/* ── Quick Capture Modal (Ctrl/Cmd+K) ────────────────────────────── */}
       <QuickCaptureModal
         isOpen={isQuickCaptureOpen}
         onClose={() => setIsQuickCaptureOpen(false)}
@@ -795,7 +649,7 @@ function App() {
         defaultBucketId={activeBucketId}
       />
 
-      {/* Mobile Floating Action Button (FAB) */}
+      {/* ── Mobile Floating Action Button (FAB) ─────────────────────────── */}
       <button
         type="button"
         onClick={() => setIsQuickCaptureOpen(true)}
@@ -807,6 +661,7 @@ function App() {
           <path d="M12 5v14" />
         </svg>
       </button>
+
     </div>
   );
 }
