@@ -25,6 +25,52 @@ import { formatDueDate, getToday, getTomorrow, isToday, isTomorrow } from '../ut
 import { PRIORITY_META, type PriorityValue } from '../utils/priority';
 import { useSwipe } from '../utils/useSwipe';
 import { requestNotificationPermission } from '../utils/notifications';
+import { SubTaskItem } from './SubTaskItem';
+
+function RecursiveSubtaskNode({
+  taskId,
+  tasks,
+  depth,
+  onUpdate,
+  onDelete,
+  onAdd,
+}: {
+  taskId: string;
+  tasks: Task[];
+  depth: number;
+  onUpdate: (id: string, updates: Partial<Task>) => void;
+  onDelete: (id: string) => void;
+  onAdd?: (title: string, parentId: string | null) => void;
+}) {
+  const task = tasks.find((t) => t.id === taskId);
+  if (!task) return null;
+
+  const children = tasks.filter((t) => t.parentId === taskId);
+
+  return (
+    <div style={{ marginLeft: depth > 0 ? '1.25rem' : '0' }}>
+      <SubTaskItem
+        task={task}
+        onToggle={(id) => onUpdate(id, { isCompleted: !task.isCompleted })}
+      />
+      {children.length > 0 && (
+        <div className="mt-1 flex flex-col gap-1 border-l-2 border-slate-100 dark:border-slate-800/60 pl-2">
+          {children.map((child) => (
+            <RecursiveSubtaskNode
+              key={child.id}
+              taskId={child.id}
+              tasks={tasks}
+              depth={depth + 1}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+              onAdd={onAdd}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface TaskDetailDrawerProps {
   task: Task | null;

@@ -80,7 +80,7 @@ export function TaskListColumn({
 
   // ── Depth ────────────────────────────────────────────────────────────────────
   const col2Depth = activeParentId ? getTaskDepth(activeParentId, tasks) + 1 : 1;
-  const col2AtMaxDepth = isSmartView || col2Depth >= MAX_DEPTH;
+  const col2AtMaxDepth = col2Depth >= MAX_DEPTH;
   const canAddToCol2 = !isSmartView && col2Depth <= MAX_DEPTH;
   // Dimming sibling tasks on mobile causes bleed-through bugs — disable it entirely there.
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -88,7 +88,7 @@ export function TaskListColumn({
   // ── Visibility & Filtering ───────────────────────────────────────────────────
   let visibleTasks: Task[];
   if (isSmartView) {
-    visibleTasks = tasks.filter((t) => !t.isCompleted);
+    visibleTasks = tasks.filter((t) => !t.isCompleted && !t.parentId);
     if (activeSmartView === 'today') {
       visibleTasks = visibleTasks.filter((t) => t.dueDate && isToday(new Date(t.dueDate)));
     } else if (activeSmartView === 'tomorrow') {
@@ -163,7 +163,7 @@ export function TaskListColumn({
         <div className="px-5 pt-5 pb-4 flex-shrink-0 border-b border-slate-100/80 dark:border-slate-800/60 flex items-center gap-4">
           
           {/* Back or Hamburger button */}
-          {activeParentId && !isSmartView ? (
+          {activeParentId ? (
             <button
               id="col2-back-btn"
               onClick={onBack}
@@ -261,17 +261,17 @@ export function TaskListColumn({
                           <TaskRow
                             key={task.id}
                             task={task}
-                            isSelected={selectedTaskId === task.id && !isSmartView}
+                            isSelected={selectedTaskId === task.id}
                             isDimmed={hasSelection && selectedTaskId !== task.id && !task.isCompleted}
                             hasChildren={tasksWithChildren.has(task.id)}
                             isAtMaxDepth={col2AtMaxDepth}
                             onToggle={onToggle}
-                            onClick={isSmartView ? () => onOpenDetail(task.id) : col2AtMaxDepth ? onToggle : onSelectTask}
+                            onClick={col2AtMaxDepth ? onToggle : onSelectTask}
                             onOpenDetail={onOpenDetail}
                             onUpdateTask={onUpdateTask}
                             onDeleteTask={onDeleteTask}
                             onToggleTimer={onToggleTimer}
-                            onSwipeDeeper={isSmartView || col2AtMaxDepth ? undefined : onSelectTask}
+                            onSwipeDeeper={col2AtMaxDepth ? undefined : onSelectTask}
                             onMoveUp={index > 0 ? () => onSwapTasks?.(task.id, tasksInBucket[index - 1].id) : undefined}
                             onMoveDown={index < tasksInBucket.length - 1 ? () => onSwapTasks?.(task.id, tasksInBucket[index + 1].id) : undefined}
                             draggedTaskId={draggedTaskId}
@@ -312,17 +312,17 @@ export function TaskListColumn({
                     <TaskRow
                       key={task.id}
                       task={task}
-                      isSelected={selectedTaskId === task.id && !isSmartView}
+                      isSelected={selectedTaskId === task.id}
                       isDimmed={hasSelection && selectedTaskId !== task.id && !task.isCompleted}
                       hasChildren={tasksWithChildren.has(task.id)}
                       isAtMaxDepth={col2AtMaxDepth}
                       onToggle={onToggle}
-                      onClick={isSmartView ? () => onOpenDetail(task.id) : col2AtMaxDepth ? onToggle : onSelectTask}
+                      onClick={col2AtMaxDepth ? onToggle : onSelectTask}
                       onOpenDetail={onOpenDetail}
                       onUpdateTask={onUpdateTask}
                       onDeleteTask={onDeleteTask}
                       onToggleTimer={onToggleTimer}
-                      onSwipeDeeper={isSmartView || col2AtMaxDepth ? undefined : onSelectTask}
+                      onSwipeDeeper={col2AtMaxDepth ? undefined : onSelectTask}
                       onMoveUp={index > 0 ? () => onSwapTasks?.(task.id, arr[index - 1].id) : undefined}
                       onMoveDown={index < arr.length - 1 ? () => onSwapTasks?.(task.id, arr[index + 1].id) : undefined}
                       draggedTaskId={draggedTaskId}
