@@ -1,0 +1,82 @@
+# =============================================================================
+# android.yml — Build a debug APK with Capacitor
+#
+# Trigger: push to main, or manually via Actions → "Run workflow"
+#
+# Steps:
+#   1. Check out code
+#   2. Set up Node & Java (required by Gradle)
+#   3. Install npm dependencies
+#   4. Build the Vite/React web app → dist/
+#   5. Sync the web build into the Capacitor Android project
+#   6. Build the Android APK (debug)
+#   7. Upload the APK as a workflow artifact
+#
+# FIRST-TIME SETUP:
+#   Before this workflow runs you must have:
+#     a) Installed Capacitor: npm install @capacitor/core @capacitor/cli @capacitor/android
+#     b) Added Android platform:  npx cap add android
+#     c) Committed the `android/` folder to your repo
+# =============================================================================
+
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # Allow manual trigger from the Actions UI
+
+jobs:
+  build-android:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Check out the repository ────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Node.js ──────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── 3. Set up Java (required by Android Gradle build) ─────────────────
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # ── 4. Install npm dependencies ────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 5. Build the Vite React app ────────────────────────────────────────
+      - name: Build web app
+        run: npm run build
+
+      # ── 6. Sync Capacitor (copies dist/ → android/app/src/main/assets/) ───
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      # ── 7. Make Gradle wrapper executable ─────────────────────────────────
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      # ── 8. Build debug APK ─────────────────────────────────────────────────
+      # For a release APK you would use assembleRelease and provide a keystore.
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+        working-directory: android
+
+      # ── 9. Upload APK artifact ─────────────────────────────────────────────
+      # The APK will appear in the Actions run under "Artifacts".
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-flow-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
