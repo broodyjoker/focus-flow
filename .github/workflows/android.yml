@@ -44,11 +44,11 @@ jobs:
           cache: 'npm'
 
       # ── 3. Set up Java (required by Android Gradle build) ─────────────────
-      - name: Set up Java 17
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       # ── 4. Install npm dependencies ────────────────────────────────────────
       - name: Install dependencies
