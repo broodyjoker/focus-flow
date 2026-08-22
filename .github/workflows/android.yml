@@ -66,17 +66,30 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # ── 8. Build debug APK ─────────────────────────────────────────────────
-      # For a release APK you would use assembleRelease and provide a keystore.
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+      # ── 8. Build release APK ─────────────────────────────────────────────────
+      # For a signed release APK you would also provide a keystore.
+      - name: Build release APK
+        run: ./gradlew assembleRelease
         working-directory: android
 
-      # ── 9. Upload APK artifact ─────────────────────────────────────────────
+      # ── 9. Sign APK ────────────────────────────────────────────────────────
+      - name: Sign APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
+
+      # ── 10. Upload APK artifact ────────────────────────────────────────────
       # The APK will appear in the Actions run under "Artifacts".
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: focus-flow-debug.apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Focus-Flow-Release-APK
+          path: ${{steps.sign_app.outputs.signedReleaseFile}}
           retention-days: 14
