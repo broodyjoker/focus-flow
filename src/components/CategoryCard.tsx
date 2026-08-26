@@ -78,18 +78,7 @@ export function CategoryCard({
         {bucket.defaultLabel.replace(`${bucket.emoji} `, '')}
       </span>
 
-      {/* Task count badge */}
-      {taskCount > 0 && (
-        <span
-          className="flex-shrink-0 min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center
-                     text-xs font-semibold text-white"
-          style={{ backgroundColor: `hsl(${bucket.accentHsl})` }}
-          aria-label={`${taskCount} task${taskCount !== 1 ? 's' : ''}`}
-        >
-          {taskCount}
-        </span>
-      )}
-
+      {/* Task count badge removed per user request */}
       {/* Mobile Move Controls */}
       <div className="md:hidden flex flex-col -space-y-1 items-center ml-1" onClick={(e) => e.stopPropagation()}>
         <button

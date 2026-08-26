@@ -4,6 +4,7 @@ import { X, Folder, HardDrive, Timer, Bell, Download, Upload, Trash2, Plus, Edit
 import type { Task, LifeBucket, Preferences } from '../models';
 import { DEFAULT_PREFERENCES } from '../models';
 import { useSwipe } from '../utils/useSwipe';
+import { platformSave } from '../utils/platformSave';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -816,19 +817,18 @@ function BackupTab({ tasks, buckets, preferences, setTasks, setBuckets, setPrefe
 
   const handleExport = () => {
     setIsExporting(true);
-    setTimeout(() => {
-      const backup = { tasks, buckets, preferences, version: 1 };
-      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `taskzone-backup-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setIsExporting(false);
-    }, 1000);
+    setTimeout(async () => {
+      try {
+        const backup = { tasks, buckets, preferences, version: 1 };
+        const content = JSON.stringify(backup, null, 2);
+        const filename = `focusflow-backup-${new Date().toISOString().split('T')[0]}.json`;
+        await platformSave(content, filename);
+      } catch (err) {
+        console.error('[Settings] Export failed:', err);
+      } finally {
+        setIsExporting(false);
+      }
+    }, 500);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {

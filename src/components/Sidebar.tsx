@@ -13,6 +13,7 @@ import { useSwipe } from '../utils/useSwipe';
 import { CategoryCard } from './CategoryCard';
 import { t } from '../i18n';
 import { Sun, Moon, Zap, Settings, X, Calendar, Star, LayoutList, CalendarDays } from 'lucide-react';
+import { useResizableWidth } from '../hooks/useResizableWidth';
 
 interface SidebarProps {
   isActiveMobileView: boolean;
@@ -52,6 +53,7 @@ export function Sidebar({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const draggedItemRef = useRef<number | null>(null);
+  const { width, startResizing } = useResizableWidth(288, 200, 600); // Default 288px (w-72)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
   useEffect(() => {
@@ -230,8 +232,16 @@ export function Sidebar({
   return (
     <>
       {/* ── Desktop Static Sidebar ────────────────────────────────────────── */}
-      <aside className="hidden md:flex flex-col w-72 bg-white dark:bg-[#0b1120] border-r border-slate-100 dark:border-slate-800/60 shadow-xl shadow-slate-900/5 dark:shadow-slate-950/40 z-10 flex-shrink-0 transition-colors h-full">
+      <aside
+        className="hidden md:flex flex-col bg-white dark:bg-[#0b1120] border-r border-slate-100 dark:border-slate-800/60 shadow-xl shadow-slate-900/5 dark:shadow-slate-950/40 z-10 flex-shrink-0 transition-colors h-full relative"
+        style={{ width: `${width}px` }}
+      >
         {sidebarContent}
+        {/* Resize handle */}
+        <div
+          onMouseDown={startResizing}
+          className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-violet-400/20 active:bg-violet-400/40 transition-colors z-50 translate-x-1/2"
+        />
       </aside>
 
       {/* ── Mobile Static Sidebar (Home) ──────────────────────────────────── */}

@@ -381,7 +381,7 @@ function App() {
    */
   const selectTask = useCallback((taskId: string) => {
     const isMobile = window.innerWidth < 768;
-    setSelectedTaskId(prev => (isMobile ? taskId : prev === taskId ? null : taskId));
+    setSelectedTaskId(taskId);          // always select, never toggle
     if (isMobile) setMobileView('col3');
   }, []);
 
@@ -405,13 +405,16 @@ function App() {
     if (!activeParentId) return;
     const activeParentTask = tasks.find(t => t.id === activeParentId);
     setSlideDirection('back');
-    setSelectedTaskId(activeParentId);                        // highlight where we came from
+    setSelectedTaskId(null);                                  // clean state — no dirty selection
     setActiveParentId(activeParentTask?.parentId ?? null);    // go up one level
     setMobileView('col2');
   }, [activeParentId, tasks]);
 
-  /** Mobile-only: go back from Col 3 to Col 2 without changing depth. */
-  const mobileBackToCol2 = useCallback(() => setMobileView('col2'), []);
+  /** Go back from Col 3 to Col 2 on mobile — clears selection so col2 shows. */
+  const mobileBackToCol2 = useCallback(() => {
+    setSelectedTaskId(null);
+    setMobileView('col2');
+  }, []);
 
   // ===========================================================================
   // === TASK ACTION ADAPTERS ==================================================
@@ -569,7 +572,7 @@ function App() {
         <>
           {/* Column 2 — task list at the current active level */}
           <TaskListColumn
-            isActiveMobileView={mobileView === 'col2'}
+            isActiveMobileView={!selectedTaskId}
             buckets={buckets}
             activeBucketId={activeBucketId}
             activeSmartView={activeSmartView}
@@ -593,7 +596,8 @@ function App() {
 
           {/* Column 3 — children of the currently selected task */}
           <ChildColumn
-            isActiveMobileView={mobileView === 'col3'}
+            key={selectedTaskId ?? 'none'}
+            isActiveMobileView={!!selectedTaskId}
             parentListName={col2Title}
             tasks={tasks}
             selectedTaskId={selectedTaskId}

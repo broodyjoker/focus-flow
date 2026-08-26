@@ -21,6 +21,12 @@
     ],
     "security": {
       "csp": null
+    },
+    "plugins": {
+      "dialog": {},
+      "fs": {
+        "scope": { "allow": ["**"], "deny": [] }
+      }
     }
   },
   "bundle": {
