@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // platformSave — save a text file on Tauri, Capacitor, or Web
 //
 // ponytail: dynamic imports keep the bundle tree-shakeable; if a native
@@ -17,8 +17,8 @@ export async function platformSave(content: string, filename: string): Promise<v
   // -- Tauri --
   if (typeof window !== 'undefined' && '__TAURI__' in window) {
     try {
-      const { save } = await import('@tauri-apps/plugin-dialog');
-      const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+      const { save } = await import('@tauri-apps/api/dialog');
+      const { writeTextFile } = await import('@tauri-apps/api/fs');
       const path = await save({
         defaultPath: filename,
         filters: [{ name: 'JSON', extensions: ['json'] }],

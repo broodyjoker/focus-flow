@@ -9,7 +9,7 @@
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
-  "app": {
+  "tauri": {
     "windows": [
       {
         "title": "focus-flow",
@@ -22,10 +22,12 @@
     "security": {
       "csp": null
     },
-    "plugins": {
-      "dialog": {},
+    "allowlist": {
+      "dialog": {
+        "all": true
+      },
       "fs": {
-        "scope": { "allow": ["**"], "deny": [] }
+        "all": true
       }
     }
   },
