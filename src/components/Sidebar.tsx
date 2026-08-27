@@ -8,6 +8,11 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { DndContext, DragOverlay, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, defaultDropAnimationSideEffects } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { createPortal } from 'react-dom';
+
 import type { LifeBucket } from '../models';
 import { useSwipe } from '../utils/useSwipe';
 import { CategoryCard } from './CategoryCard';
@@ -33,6 +38,16 @@ interface SidebarProps {
   onToggleCalendar?: () => void;
 }
 
+
+function SortableBucket({ bucket, taskCount, isActive, onClick, onMoveUp, onMoveDown, isMobile }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: bucket.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, position: 'relative', zIndex: isDragging ? 99 : 1 };
+  return (
+    <div ref={setNodeRef} style={style} {...(!isMobile ? attributes : {})} {...(!isMobile ? listeners : {})}>
+      <CategoryCard bucket={bucket} taskCount={taskCount} isActive={isActive} onClick={onClick} onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
+    </div>
+  );
+}
 export function Sidebar({
   isActiveMobileView,
   onClose,
@@ -50,9 +65,9 @@ export function Sidebar({
   onOpenSettings = () => {},
   onToggleCalendar = () => {},
 }: SidebarProps) {
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const draggedItemRef = useRef<number | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }));
+  
   const { width, startResizing } = useResizableWidth(288, 200, 600); // Default 288px (w-72)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
@@ -172,59 +187,42 @@ export function Sidebar({
         <div className="mx-3 my-3 h-px bg-slate-100 dark:bg-slate-800/80" />
 
         {/* Bucket list */}
-        <nav aria-label="Life buckets" className="space-y-0.5">
-          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400/70 dark:text-slate-600">
-            My Buckets
-          </p>
-          {buckets.map((bucket, index) => (
-            <div
-              key={bucket.id}
-              draggable={!isMobile}
-              onDragStart={() => {
-                draggedItemRef.current = index;
-                setDraggedIndex(index);
-              }}
-              onDragEnter={(e) => {
-                e.preventDefault();
-                setDragOverIndex(index);
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-              }}
-              onDragEnd={() => {
-                setDraggedIndex(null);
-                setDragOverIndex(null);
-                draggedItemRef.current = null;
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (draggedItemRef.current !== null && draggedItemRef.current !== index) {
-                  onReorderBuckets(draggedItemRef.current, index);
-                }
-                setDraggedIndex(null);
-                setDragOverIndex(null);
-                draggedItemRef.current = null;
-              }}
-              className={[
-                'transition-all duration-200 rounded-xl relative',
-                draggedIndex === index ? 'opacity-40' : 'opacity-100',
-                dragOverIndex === index && draggedIndex !== index ? 'bg-slate-100 dark:bg-slate-800/80 scale-[1.02]' : ''
-              ].join(' ')}
-            >
-              <CategoryCard
-                bucket={bucket}
-                taskCount={taskCountByBucket[bucket.id] ?? 0}
-                isActive={!activeSmartView && activeBucketId === bucket.id}
-                onClick={() => {
-                  onSelectBucket(bucket.id);
-                  onClose();
-                }}
-                onMoveUp={index > 0 ? () => onSwapBuckets?.(bucket.id, buckets[index - 1].id) : undefined}
-                onMoveDown={index < buckets.length - 1 ? () => onSwapBuckets?.(bucket.id, buckets[index + 1].id) : undefined}
-              />
-            </div>
-          ))}
-        </nav>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveDragId(e.active.id as string)} onDragEnd={(e) => {
+          setActiveDragId(null);
+          const { active, over } = e;
+          if (over && active.id !== over.id) {
+            const oldIndex = buckets.findIndex(b => b.id === active.id);
+            const newIndex = buckets.findIndex(b => b.id === over.id);
+            if (oldIndex !== -1 && newIndex !== -1) onReorderBuckets(oldIndex, newIndex);
+          }
+        }}>
+          <nav aria-label="Life buckets" className="space-y-0.5 relative">
+            <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400/70 dark:text-slate-600">My Buckets</p>
+            <SortableContext items={buckets.map(b => b.id)} strategy={verticalListSortingStrategy}>
+              {buckets.map((bucket, index) => (
+                <SortableBucket
+                  key={bucket.id}
+                  bucket={bucket}
+                  isMobile={isMobile}
+                  taskCount={taskCountByBucket[bucket.id] ?? 0}
+                  isActive={!activeSmartView && activeBucketId === bucket.id}
+                  onClick={() => { onSelectBucket(bucket.id); onClose(); }}
+                  onMoveUp={index > 0 ? () => onSwapBuckets?.(bucket.id, buckets[index - 1].id) : undefined}
+                  onMoveDown={index < buckets.length - 1 ? () => onSwapBuckets?.(bucket.id, buckets[index + 1].id) : undefined}
+                />
+              ))}
+            </SortableContext>
+          </nav>
+          {typeof document !== 'undefined' && createPortal(
+            <DragOverlay dropAnimation={{ sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.4' } } }) }}>
+              {activeDragId ? (() => {
+                const b = buckets.find(b => b.id === activeDragId);
+                return b ? <div style={{ transform: 'scale(1.02)' }}><CategoryCard bucket={b} taskCount={taskCountByBucket[b.id] ?? 0} isActive={!activeSmartView && activeBucketId === b.id} onClick={() => {}} /></div> : null;
+              })() : null}
+            </DragOverlay>,
+            document.body
+          )}
+        </DndContext>
       </div>
     </>
   );
@@ -234,7 +232,7 @@ export function Sidebar({
       {/* ── Desktop Static Sidebar ────────────────────────────────────────── */}
       <aside
         className="hidden md:flex flex-col bg-white dark:bg-[#0b1120] border-r border-slate-100 dark:border-slate-800/60 shadow-xl shadow-slate-900/5 dark:shadow-slate-950/40 z-10 flex-shrink-0 transition-colors h-full relative"
-        style={{ width: `${width}px` }}
+        style={{ width: `px` }}
       >
         {sidebarContent}
         {/* Resize handle */}
@@ -242,16 +240,6 @@ export function Sidebar({
           onMouseDown={startResizing}
           className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-violet-400/20 active:bg-violet-400/40 transition-colors z-50 translate-x-1/2"
         />
-      </aside>
-
-      {/* ── Mobile Static Sidebar (Home) ──────────────────────────────────── */}
-      <aside
-        className={[
-          'md:hidden flex-col w-full h-full bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800',
-          isActiveMobileView ? 'flex' : 'hidden'
-        ].join(' ')}
-      >
-        {sidebarContent}
       </aside>
     </>
   );

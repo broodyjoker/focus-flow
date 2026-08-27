@@ -214,54 +214,56 @@ export function TaskRow({
           </span>
         </div>
 
-        {task.isRoutine && <span aria-label="Daily routine" className="flex-shrink-0 text-emerald-400 dark:text-emerald-500 text-[11px]">🔄</span>}
-
-        {task.dueDate && <DueDateBadge date={task.dueDate} />}
-
-        {task.priority && task.priority !== 'none' && !task.isCompleted && (
-          <span
-            className={['flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-[4px] border border-transparent text-[12px]', PRIORITY_META[task.priority as PriorityValue].color, PRIORITY_META[task.priority as PriorityValue].bgColor, PRIORITY_META[task.priority as PriorityValue].borderColor].join(' ')}
-            title={`Priority: ${PRIORITY_META[task.priority as PriorityValue].label}`}
-          >
-            {PRIORITY_META[task.priority as PriorityValue].icon}
-          </span>
-        )}
-
-        <div className={`task-actions relative ${isCalendarOpen ? 'z-[60]' : 'z-10'} flex items-center gap-1 flex-shrink-0`} style={{ pointerEvents: 'auto' }}>
-          {!isMobile && onDeleteTask && (
-            <button onClick={(e) => { e.stopPropagation(); onDeleteTask(task.id); }} className="p-1.5 text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition-colors" title="Delete task" aria-label="Delete task">
-              <Trash2 size={16} />
-            </button>
+        <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+  {task.isRoutine && <span aria-label="Daily routine" className="flex-shrink-0 text-emerald-400 dark:text-emerald-500 text-[11px]">🔄</span>}
+  
+          {task.dueDate && <DueDateBadge date={task.dueDate} />}
+  
+          {task.priority && task.priority !== 'none' && !task.isCompleted && (
+            <span
+              className={['flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-[4px] border border-transparent text-[12px]', PRIORITY_META[task.priority as PriorityValue].color, PRIORITY_META[task.priority as PriorityValue].bgColor, PRIORITY_META[task.priority as PriorityValue].borderColor].join(' ')}
+              title={`Priority: ${PRIORITY_META[task.priority as PriorityValue].label}`}
+            >
+              {PRIORITY_META[task.priority as PriorityValue].icon}
+            </span>
           )}
-          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (onToggleTimer) onToggleTimer(task.id); }} title="Start Pomodoro" className="p-1.5 text-slate-400 hover:text-rose-500 active:scale-95 dark:text-slate-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all duration-200">
-            <Timer size={14} />
-          </button>
-          <div className="relative" ref={calendarRef}>
-            <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsCalendarOpen(!isCalendarOpen); }} title="Schedule Task" className={['p-1.5 rounded-lg transition-all duration-200 active:scale-95', isCalendarOpen ? 'text-violet-600 bg-violet-50 dark:text-violet-400 dark:bg-violet-900/30' : 'text-slate-400 hover:text-violet-600 dark:text-slate-500 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30'].join(' ')}>
-              <Calendar size={14} />
-            </button>
-            {isCalendarOpen && (
-              <div className="absolute right-0 top-full mt-1 w-32 py-1 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-[999] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { dueDate: getToday() }); setIsCalendarOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 w-full text-left transition-colors"><Sun size={14} className="text-amber-500" />Today</button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { dueDate: getTomorrow() }); setIsCalendarOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 w-full text-left transition-colors"><Sunrise size={14} className="text-sky-500" />Tomorrow</button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { dueDate: undefined }); setIsCalendarOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 w-full text-left transition-colors"><Calendar size={14} className="text-slate-400" />Someday</button>
-              </div>
+  
+          <div className={`task-actions relative ${isCalendarOpen ? 'z-[60]' : 'z-10'} flex items-center gap-1 flex-shrink-0`} style={{ pointerEvents: 'auto' }}>
+            {!isMobile && onDeleteTask && (
+              <button onClick={(e) => { e.stopPropagation(); onDeleteTask(task.id); }} className="p-1.5 text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition-colors" title="Delete task" aria-label="Delete task">
+                <Trash2 size={16} />
+              </button>
             )}
+            <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (onToggleTimer) onToggleTimer(task.id); }} title="Start Pomodoro" className="p-1.5 text-slate-400 hover:text-rose-500 active:scale-95 dark:text-slate-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all duration-200">
+              <Timer size={14} />
+            </button>
+            <div className="relative" ref={calendarRef}>
+              <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsCalendarOpen(!isCalendarOpen); }} title="Schedule Task" className={['p-1.5 rounded-lg transition-all duration-200 active:scale-95', isCalendarOpen ? 'text-violet-600 bg-violet-50 dark:text-violet-400 dark:bg-violet-900/30' : 'text-slate-400 hover:text-violet-600 dark:text-slate-500 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30'].join(' ')}>
+                <Calendar size={14} />
+              </button>
+              {isCalendarOpen && (
+                <div className="absolute right-0 top-full mt-1 w-32 py-1 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-[999] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { dueDate: getToday() }); setIsCalendarOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 w-full text-left transition-colors"><Sun size={14} className="text-amber-500" />Today</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { dueDate: getTomorrow() }); setIsCalendarOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 w-full text-left transition-colors"><Sunrise size={14} className="text-sky-500" />Tomorrow</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { dueDate: undefined }); setIsCalendarOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 w-full text-left transition-colors"><Calendar size={14} className="text-slate-400" />Someday</button>
+                </div>
+              )}
+            </div>
           </div>
+  
+          {/* Mobile Move Controls */}
+          <div className="md:hidden flex flex-col -space-y-1 items-center ml-1" onClick={(e) => e.stopPropagation()}>
+            <button onClick={(e) => { e.stopPropagation(); onMoveUp?.(); }} disabled={!onMoveUp} className="p-1 text-slate-300 dark:text-slate-600 hover:text-slate-500 disabled:opacity-30 transition-colors" aria-label="Move Up"><ChevronUp size={16} /></button>
+            <button onClick={(e) => { e.stopPropagation(); onMoveDown?.(); }} disabled={!onMoveDown} className="p-1 text-slate-300 dark:text-slate-600 hover:text-slate-500 disabled:opacity-30 transition-colors" aria-label="Move Down"><ChevronDown size={16} /></button>
+          </div>
+  
+          {/* Right chevron */}
+          <button onClick={(e) => { e.stopPropagation(); onOpenDetail(task.id); }} aria-label="Task settings" className="p-2 -mr-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 active:scale-95 flex-shrink-0">
+            <svg className={['w-4 h-4 transition-all duration-200', isAtMaxDepth ? 'opacity-0' : isSelected ? 'text-violet-400 opacity-100' : hasChildren ? 'text-slate-400 dark:text-slate-500 opacity-100' : 'text-slate-300 dark:text-slate-600 opacity-100'].join(' ')} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         </div>
-
-        {/* Mobile Move Controls */}
-        <div className="md:hidden flex flex-col -space-y-1 items-center ml-1" onClick={(e) => e.stopPropagation()}>
-          <button onClick={(e) => { e.stopPropagation(); onMoveUp?.(); }} disabled={!onMoveUp} className="p-1 text-slate-300 dark:text-slate-600 hover:text-slate-500 disabled:opacity-30 transition-colors" aria-label="Move Up"><ChevronUp size={16} /></button>
-          <button onClick={(e) => { e.stopPropagation(); onMoveDown?.(); }} disabled={!onMoveDown} className="p-1 text-slate-300 dark:text-slate-600 hover:text-slate-500 disabled:opacity-30 transition-colors" aria-label="Move Down"><ChevronDown size={16} /></button>
-        </div>
-
-        {/* Right chevron */}
-        <button onClick={(e) => { e.stopPropagation(); onOpenDetail(task.id); }} aria-label="Task settings" className="p-2 -mr-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 active:scale-95 flex-shrink-0">
-          <svg className={['w-4 h-4 transition-all duration-200', isAtMaxDepth ? 'opacity-0' : isSelected ? 'text-violet-400 opacity-100' : hasChildren ? 'text-slate-400 dark:text-slate-500 opacity-100' : 'text-slate-300 dark:text-slate-600 opacity-100'].join(' ')} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
       </motion.div>
     </motion.div>
   );
