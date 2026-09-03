@@ -405,9 +405,22 @@ function App() {
     if (!activeParentId) return;
     const activeParentTask = tasks.find(t => t.id === activeParentId);
     setSlideDirection('back');
-    setSelectedTaskId(null);                                  // clean state — no dirty selection
-    setActiveParentId(activeParentTask?.parentId ?? null);    // go up one level
-    setMobileView('col2');
+
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
+    if (isMobile) {
+      setSelectedTaskId(null);
+      setActiveParentId(activeParentTask?.parentId ?? null);
+      setMobileView('col2');
+    } else {
+      if (!activeParentTask?.parentId) {
+        setSelectedTaskId(null);
+        setActiveParentId(null);
+      } else {
+        setSelectedTaskId(activeParentId);
+        setActiveParentId(activeParentTask.parentId);
+      }
+    }
   }, [activeParentId, tasks]);
 
   /** Go back from Col 3 to Col 2 on mobile — clears selection so col2 shows. */
